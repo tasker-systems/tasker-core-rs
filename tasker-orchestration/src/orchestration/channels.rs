@@ -236,6 +236,8 @@ impl From<mpsc::Sender<OrchestrationCommand>> for OrchestrationCommandSender {
 mod tests {
     use super::*;
 
+    // --- Notification Channel ---
+
     #[tokio::test]
     async fn test_notification_channel_send_recv() {
         let (tx, mut rx) = ChannelFactory::orchestration_notification_channel(10);
@@ -256,14 +258,116 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_channel_capacity() {
+    async fn test_notification_channel_capacity() {
         let (tx, _rx) = ChannelFactory::orchestration_notification_channel(100);
         assert_eq!(tx.max_capacity(), 100);
     }
 
     #[test]
-    fn test_sender_clone() {
+    fn test_notification_sender_clone() {
         let (tx, _rx) = ChannelFactory::orchestration_notification_channel(10);
-        let _tx2 = tx.clone(); // Should compile - senders are clonable
+        let _tx2 = tx.clone(); // Senders are clonable
+    }
+
+    #[test]
+    fn test_notification_sender_is_closed_when_receiver_dropped() {
+        let (tx, rx) = ChannelFactory::orchestration_notification_channel(10);
+        assert!(!tx.is_closed());
+        drop(rx);
+        assert!(tx.is_closed());
+    }
+
+    #[tokio::test]
+    async fn test_notification_receiver_close() {
+        let (tx, mut rx) = ChannelFactory::orchestration_notification_channel(10);
+        rx.close();
+        // After close, sender should fail
+        let result = tx
+            .send(OrchestrationNotification::ConnectionError(
+                "test".to_string(),
+            ))
+            .await;
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_notification_try_recv_empty() {
+        let (_tx, mut rx) = ChannelFactory::orchestration_notification_channel(10);
+        assert!(rx.try_recv().is_err());
+    }
+
+    // --- Command Channel ---
+
+    #[tokio::test]
+    async fn test_command_channel_capacity() {
+        let (tx, _rx) = ChannelFactory::orchestration_command_channel(500);
+        assert_eq!(tx.max_capacity(), 500);
+    }
+
+    #[test]
+    fn test_command_sender_clone() {
+        let (tx, _rx) = ChannelFactory::orchestration_command_channel(10);
+        let _tx2 = tx.clone();
+    }
+
+    #[test]
+    fn test_command_sender_is_closed_when_receiver_dropped() {
+        let (tx, rx) = ChannelFactory::orchestration_command_channel(10);
+        assert!(!tx.is_closed());
+        drop(rx);
+        assert!(tx.is_closed());
+    }
+
+    #[test]
+    fn test_command_sender_inner_access() {
+        let (tx, _rx) = ChannelFactory::orchestration_command_channel(10);
+        let inner = tx.inner();
+        assert_eq!(inner.max_capacity(), 10);
+    }
+
+    #[test]
+    fn test_command_try_recv_empty() {
+        let (_tx, mut rx) = ChannelFactory::orchestration_command_channel(10);
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn test_command_receiver_close() {
+        let (_tx, mut rx) = ChannelFactory::orchestration_command_channel(10);
+        rx.close();
+        // After close, recv returns None
+        let result = rx.recv().await;
+        assert!(result.is_none());
+    }
+
+    // --- From conversions ---
+
+    #[test]
+    fn test_notification_sender_from_raw() {
+        let (raw_tx, _rx) = mpsc::channel::<OrchestrationNotification>(10);
+        let typed_tx: OrchestrationNotificationSender = raw_tx.into();
+        assert_eq!(typed_tx.max_capacity(), 10);
+    }
+
+    #[test]
+    fn test_command_sender_from_raw() {
+        let (raw_tx, _rx) = mpsc::channel::<OrchestrationCommand>(20);
+        let typed_tx: OrchestrationCommandSender = raw_tx.into();
+        assert_eq!(typed_tx.max_capacity(), 20);
+    }
+
+    // --- ChannelFactory ---
+
+    #[test]
+    fn test_channel_factory_default() {
+        let _factory = ChannelFactory::default();
+        let _factory2 = ChannelFactory;
+    }
+
+    #[test]
+    fn test_channel_factory_debug() {
+        let factory = ChannelFactory;
+        let debug = format!("{:?}", factory);
+        assert!(debug.contains("ChannelFactory"));
     }
 }

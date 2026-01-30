@@ -46,3 +46,41 @@ impl RequestId {
         &self.0
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_request_id_creation() {
+        let id = RequestId("test-request-123".to_string());
+        assert_eq!(id.as_str(), "test-request-123");
+    }
+
+    #[test]
+    fn test_request_id_as_str() {
+        let uuid_str = "550e8400-e29b-41d4-a716-446655440000";
+        let id = RequestId(uuid_str.to_string());
+        assert_eq!(id.as_str(), uuid_str);
+    }
+
+    #[test]
+    fn test_request_id_clone() {
+        let original = RequestId("original-id".to_string());
+        let cloned = original.clone();
+        assert_eq!(original.as_str(), cloned.as_str());
+    }
+
+    #[test]
+    fn test_request_id_debug() {
+        let id = RequestId("debug-test".to_string());
+        let debug_str = format!("{:?}", id);
+        assert!(debug_str.contains("debug-test"));
+    }
+
+    #[test]
+    fn test_request_id_empty_string() {
+        let id = RequestId(String::new());
+        assert_eq!(id.as_str(), "");
+    }
+}

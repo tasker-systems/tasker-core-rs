@@ -9,10 +9,11 @@
 //! - State management for orchestration
 //! - Task initialization and cycle detection
 //! - Service layer (TAS-76)
-//!
-
+#[path = "messaging/mod.rs"]
 pub mod messaging;
+
+#[path = "services/mod.rs"]
 pub mod services;
-pub mod state_manager;
-pub mod task_initialization_cycle_detection_test;
+
+#[path = "web/mod.rs"]
 pub mod web;

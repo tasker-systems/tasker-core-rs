@@ -277,3 +277,90 @@ impl StepService {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- StepServiceError Display messages ---
+
+    #[test]
+    fn test_error_display_validation() {
+        let err = StepServiceError::Validation("invalid step".to_string());
+        assert_eq!(err.to_string(), "Validation error: invalid step");
+    }
+
+    #[test]
+    fn test_error_display_not_found() {
+        let uuid = Uuid::now_v7();
+        let err = StepServiceError::NotFound(uuid);
+        assert!(err.to_string().contains(&uuid.to_string()));
+    }
+
+    #[test]
+    fn test_error_display_ownership_mismatch() {
+        let err = StepServiceError::OwnershipMismatch;
+        assert_eq!(err.to_string(), "Step does not belong to task");
+    }
+
+    #[test]
+    fn test_error_display_invalid_transition() {
+        let err = StepServiceError::InvalidTransition("pending to complete".to_string());
+        assert_eq!(
+            err.to_string(),
+            "Invalid state transition: pending to complete"
+        );
+    }
+
+    #[test]
+    fn test_error_display_database() {
+        let err = StepServiceError::Database("query failed".to_string());
+        assert_eq!(err.to_string(), "Database error: query failed");
+    }
+
+    #[test]
+    fn test_error_display_internal() {
+        let err = StepServiceError::Internal("unexpected".to_string());
+        assert_eq!(err.to_string(), "Internal error: unexpected");
+    }
+
+    // --- From<StepQueryError> conversion ---
+
+    #[test]
+    fn test_from_step_query_error_not_found() {
+        let uuid = Uuid::now_v7();
+        let query_err = StepQueryError::NotFound(uuid);
+        let service_err: StepServiceError = query_err.into();
+
+        assert!(matches!(service_err, StepServiceError::NotFound(u) if u == uuid));
+    }
+
+    #[test]
+    fn test_from_step_query_error_ownership_mismatch() {
+        let query_err = StepQueryError::OwnershipMismatch {
+            step_uuid: Uuid::now_v7(),
+            task_uuid: Uuid::now_v7(),
+        };
+        let service_err: StepServiceError = query_err.into();
+
+        assert!(matches!(service_err, StepServiceError::OwnershipMismatch));
+    }
+
+    #[test]
+    fn test_from_step_query_error_database() {
+        let sqlx_err = sqlx::Error::ColumnNotFound("test_col".to_string());
+        let query_err = StepQueryError::Database(sqlx_err);
+        let service_err: StepServiceError = query_err.into();
+
+        assert!(matches!(service_err, StepServiceError::Database(_)));
+    }
+
+    // --- Debug output ---
+
+    #[test]
+    fn test_error_debug_format() {
+        let err = StepServiceError::OwnershipMismatch;
+        let debug = format!("{:?}", err);
+        assert!(debug.contains("OwnershipMismatch"));
+    }
+}

@@ -900,3 +900,398 @@ impl StateHealthSummary {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- Helper to build StepReadinessStatus for pure function tests ---
+
+    fn make_step_readiness(
+        ready: bool,
+        deps_satisfied: bool,
+    ) -> tasker_shared::database::sql_functions::StepReadinessStatus {
+        tasker_shared::database::sql_functions::StepReadinessStatus {
+            workflow_step_uuid: Uuid::now_v7(),
+            task_uuid: Uuid::now_v7(),
+            named_step_uuid: Uuid::now_v7(),
+            name: "test_step".to_string(),
+            current_state: "pending".to_string(),
+            dependencies_satisfied: deps_satisfied,
+            retry_eligible: false,
+            ready_for_execution: ready,
+            last_failure_at: None,
+            next_retry_at: None,
+            total_parents: 0,
+            completed_parents: 0,
+            attempts: 0,
+            max_attempts: 3,
+            backoff_request_seconds: None,
+            last_attempted_at: None,
+        }
+    }
+
+    // --- StateTransitionRequest ---
+
+    #[test]
+    fn test_state_transition_request_construction() {
+        let entity_uuid = Uuid::now_v7();
+        let request = StateTransitionRequest {
+            entity_uuid,
+            entity_type: StateEntityType::Task,
+            target_state: "complete".to_string(),
+            event: StateTransitionEvent::TaskEvent(TaskEvent::Complete),
+            metadata: None,
+        };
+
+        assert_eq!(request.entity_uuid, entity_uuid);
+        assert_eq!(request.entity_type, StateEntityType::Task);
+        assert_eq!(request.target_state, "complete");
+        assert!(request.metadata.is_none());
+    }
+
+    #[test]
+    fn test_state_transition_request_with_metadata() {
+        let mut metadata = HashMap::new();
+        metadata.insert("reason".to_string(), serde_json::json!("manual override"));
+        metadata.insert("operator".to_string(), serde_json::json!("admin"));
+
+        let request = StateTransitionRequest {
+            entity_uuid: Uuid::now_v7(),
+            entity_type: StateEntityType::Step,
+            target_state: "error".to_string(),
+            event: StateTransitionEvent::StepEvent(StepEvent::Fail("timeout".to_string())),
+            metadata: Some(metadata.clone()),
+        };
+
+        assert_eq!(request.entity_type, StateEntityType::Step);
+        let meta = request.metadata.unwrap();
+        assert_eq!(meta.len(), 2);
+        assert_eq!(meta["reason"], serde_json::json!("manual override"));
+    }
+
+    // --- StateEntityType ---
+
+    #[test]
+    fn test_state_entity_type_equality() {
+        assert_eq!(StateEntityType::Task, StateEntityType::Task);
+        assert_eq!(StateEntityType::Step, StateEntityType::Step);
+        assert_ne!(StateEntityType::Task, StateEntityType::Step);
+    }
+
+    #[test]
+    fn test_state_entity_type_debug() {
+        assert_eq!(format!("{:?}", StateEntityType::Task), "Task");
+        assert_eq!(format!("{:?}", StateEntityType::Step), "Step");
+    }
+
+    // --- StateEvaluationResult ---
+
+    #[test]
+    fn test_state_evaluation_result_no_transition() {
+        let result = StateEvaluationResult {
+            entity_uuid: Uuid::now_v7(),
+            entity_type: StateEntityType::Task,
+            current_state: "complete".to_string(),
+            recommended_state: None,
+            transition_required: false,
+            reason: Some("Terminal state".to_string()),
+        };
+
+        assert!(!result.transition_required);
+        assert!(result.recommended_state.is_none());
+    }
+
+    #[test]
+    fn test_state_evaluation_result_with_transition() {
+        let result = StateEvaluationResult {
+            entity_uuid: Uuid::now_v7(),
+            entity_type: StateEntityType::Step,
+            current_state: "pending".to_string(),
+            recommended_state: Some("in_progress".to_string()),
+            transition_required: true,
+            reason: Some("Dependencies satisfied".to_string()),
+        };
+
+        assert!(result.transition_required);
+        assert_eq!(result.recommended_state, Some("in_progress".to_string()));
+    }
+
+    // --- StateHealthSummary ---
+
+    #[test]
+    fn test_health_summary_healthy_system() {
+        let summary = StateHealthSummary {
+            total_tasks: 100,
+            pending_tasks: 5,
+            in_progress_tasks: 10,
+            completed_tasks: 80,
+            failed_tasks: 5,
+            total_steps: 500,
+            pending_steps: 20,
+            in_progress_steps: 30,
+            completed_steps: 430,
+            failed_steps: 20,
+            overall_health_score: 0.9,
+            last_updated: Utc::now(),
+        };
+
+        assert!(summary.is_healthy());
+        assert_eq!(summary.task_completion_percentage(), 80.0);
+        assert_eq!(summary.step_completion_percentage(), 86.0);
+    }
+
+    #[test]
+    fn test_health_summary_unhealthy_system() {
+        let summary = StateHealthSummary {
+            total_tasks: 100,
+            pending_tasks: 10,
+            in_progress_tasks: 20,
+            completed_tasks: 20,
+            failed_tasks: 50,
+            total_steps: 500,
+            pending_steps: 50,
+            in_progress_steps: 100,
+            completed_steps: 100,
+            failed_steps: 250,
+            overall_health_score: 0.3,
+            last_updated: Utc::now(),
+        };
+
+        assert!(!summary.is_healthy());
+        assert_eq!(summary.task_completion_percentage(), 20.0);
+        assert_eq!(summary.step_completion_percentage(), 20.0);
+    }
+
+    #[test]
+    fn test_health_summary_zero_tasks() {
+        let summary = StateHealthSummary {
+            total_tasks: 0,
+            pending_tasks: 0,
+            in_progress_tasks: 0,
+            completed_tasks: 0,
+            failed_tasks: 0,
+            total_steps: 0,
+            pending_steps: 0,
+            in_progress_steps: 0,
+            completed_steps: 0,
+            failed_steps: 0,
+            overall_health_score: 1.0,
+            last_updated: Utc::now(),
+        };
+
+        assert!(summary.is_healthy());
+        assert_eq!(summary.task_completion_percentage(), 0.0);
+        assert_eq!(summary.step_completion_percentage(), 0.0);
+    }
+
+    #[test]
+    fn test_health_summary_all_failed() {
+        let summary = StateHealthSummary {
+            total_tasks: 50,
+            pending_tasks: 0,
+            in_progress_tasks: 0,
+            completed_tasks: 0,
+            failed_tasks: 50,
+            total_steps: 200,
+            pending_steps: 0,
+            in_progress_steps: 0,
+            completed_steps: 0,
+            failed_steps: 200,
+            overall_health_score: 0.0,
+            last_updated: Utc::now(),
+        };
+
+        assert!(!summary.is_healthy());
+        assert_eq!(summary.task_completion_percentage(), 0.0);
+        assert_eq!(summary.step_completion_percentage(), 0.0);
+    }
+
+    #[test]
+    fn test_health_summary_boundary_health_score() {
+        // Exactly at threshold
+        let summary = StateHealthSummary {
+            total_tasks: 10,
+            pending_tasks: 0,
+            in_progress_tasks: 0,
+            completed_tasks: 8,
+            failed_tasks: 2,
+            total_steps: 0,
+            pending_steps: 0,
+            in_progress_steps: 0,
+            completed_steps: 0,
+            failed_steps: 0,
+            overall_health_score: 0.8,
+            last_updated: Utc::now(),
+        };
+        assert!(summary.is_healthy());
+
+        // Just below threshold
+        let summary_below = StateHealthSummary {
+            overall_health_score: 0.799,
+            ..summary
+        };
+        assert!(!summary_below.is_healthy());
+    }
+
+    #[test]
+    fn test_health_summary_100_percent_completion() {
+        let summary = StateHealthSummary {
+            total_tasks: 25,
+            pending_tasks: 0,
+            in_progress_tasks: 0,
+            completed_tasks: 25,
+            failed_tasks: 0,
+            total_steps: 100,
+            pending_steps: 0,
+            in_progress_steps: 0,
+            completed_steps: 100,
+            failed_steps: 0,
+            overall_health_score: 1.0,
+            last_updated: Utc::now(),
+        };
+
+        assert_eq!(summary.task_completion_percentage(), 100.0);
+        assert_eq!(summary.step_completion_percentage(), 100.0);
+    }
+
+    // --- calculate_recommended_step_state (private, accessible from inline tests) ---
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_recommended_step_state_pending_ready(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let context = Arc::new(SystemContext::with_pool(pool).await?);
+        let manager = StateManager::new(context);
+
+        let status = make_step_readiness(true, true);
+        let (recommended, reason) =
+            manager.calculate_recommended_step_state(&status, &WorkflowStepState::Pending);
+
+        assert_eq!(recommended, Some(WorkflowStepState::InProgress));
+        assert!(reason.is_some());
+        assert!(reason.unwrap().contains("Dependencies satisfied"));
+        Ok(())
+    }
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_recommended_step_state_pending_not_ready(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let context = Arc::new(SystemContext::with_pool(pool).await?);
+        let manager = StateManager::new(context);
+
+        let status = make_step_readiness(false, false);
+        let (recommended, reason) =
+            manager.calculate_recommended_step_state(&status, &WorkflowStepState::Pending);
+
+        assert!(recommended.is_none());
+        assert!(reason.is_none());
+        Ok(())
+    }
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_recommended_step_state_pending_ready_but_deps_unsatisfied(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let context = Arc::new(SystemContext::with_pool(pool).await?);
+        let manager = StateManager::new(context);
+
+        // Ready for execution but dependencies not satisfied
+        let status = make_step_readiness(true, false);
+        let (recommended, _) =
+            manager.calculate_recommended_step_state(&status, &WorkflowStepState::Pending);
+
+        // Both conditions must be true
+        assert!(recommended.is_none());
+        Ok(())
+    }
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_recommended_step_state_in_progress(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let context = Arc::new(SystemContext::with_pool(pool).await?);
+        let manager = StateManager::new(context);
+
+        let status = make_step_readiness(true, true);
+        let (recommended, _) =
+            manager.calculate_recommended_step_state(&status, &WorkflowStepState::InProgress);
+
+        // InProgress steps don't get recommendations from SQL analysis
+        assert!(recommended.is_none());
+        Ok(())
+    }
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_recommended_step_state_terminal_states(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let context = Arc::new(SystemContext::with_pool(pool).await?);
+        let manager = StateManager::new(context);
+
+        let status = make_step_readiness(true, true);
+
+        // Complete state should have no recommendation
+        let (rec, _) =
+            manager.calculate_recommended_step_state(&status, &WorkflowStepState::Complete);
+        assert!(rec.is_none());
+
+        // Error state should have no recommendation
+        let (rec, _) = manager.calculate_recommended_step_state(&status, &WorkflowStepState::Error);
+        assert!(rec.is_none());
+
+        Ok(())
+    }
+
+    // --- StateManager creation and basic operations ---
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_state_manager_creation(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let context = Arc::new(SystemContext::with_pool(pool).await?);
+        let manager = StateManager::new(context);
+
+        // Verify Debug impl
+        let debug = format!("{:?}", manager);
+        assert!(debug.contains("StateManager"));
+
+        // Verify pool access
+        let _pool = manager.database_pool();
+
+        Ok(())
+    }
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_state_manager_clone(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let context = Arc::new(SystemContext::with_pool(pool).await?);
+        let manager = StateManager::new(context);
+        let cloned = manager.clone();
+
+        // Both should work independently
+        let _debug1 = format!("{:?}", manager);
+        let _debug2 = format!("{:?}", cloned);
+
+        Ok(())
+    }
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_state_manager_health_summary(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let context = Arc::new(SystemContext::with_pool(pool).await?);
+        let manager = StateManager::new(context);
+
+        let summary = manager.get_state_health_summary().await?;
+
+        // With a clean test database, should have no tasks
+        assert_eq!(summary.total_tasks, 0);
+        assert!(summary.is_healthy());
+        assert_eq!(summary.overall_health_score, 1.0);
+
+        Ok(())
+    }
+}

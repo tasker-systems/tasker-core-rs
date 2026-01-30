@@ -163,3 +163,297 @@ pub fn step_service_error_to_status(error: &crate::services::StepServiceError) -
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    // --- Task state conversions ---
+
+    #[test]
+    fn test_task_state_to_proto_valid_states() {
+        assert_eq!(task_state_to_proto("pending"), proto::TaskState::Pending);
+        assert_eq!(task_state_to_proto("complete"), proto::TaskState::Complete);
+        assert_eq!(task_state_to_proto("error"), proto::TaskState::Error);
+    }
+
+    #[test]
+    fn test_task_state_to_proto_unknown_state() {
+        assert_eq!(
+            task_state_to_proto("nonexistent"),
+            proto::TaskState::Unspecified
+        );
+        assert_eq!(task_state_to_proto(""), proto::TaskState::Unspecified);
+    }
+
+    #[test]
+    fn test_proto_to_task_state_valid() {
+        assert_eq!(proto_to_task_state(proto::TaskState::Pending), "pending");
+        assert_eq!(proto_to_task_state(proto::TaskState::Complete), "complete");
+        assert_eq!(proto_to_task_state(proto::TaskState::Error), "error");
+    }
+
+    #[test]
+    fn test_proto_to_task_state_unspecified() {
+        assert_eq!(
+            proto_to_task_state(proto::TaskState::Unspecified),
+            "unspecified"
+        );
+    }
+
+    // --- Step state conversions ---
+
+    #[test]
+    fn test_step_state_to_proto_valid_states() {
+        assert_eq!(step_state_to_proto("pending"), proto::StepState::Pending);
+        assert_eq!(
+            step_state_to_proto("in_progress"),
+            proto::StepState::InProgress
+        );
+        assert_eq!(step_state_to_proto("complete"), proto::StepState::Complete);
+        assert_eq!(step_state_to_proto("error"), proto::StepState::Error);
+    }
+
+    #[test]
+    fn test_step_state_to_proto_unknown_state() {
+        assert_eq!(
+            step_state_to_proto("invalid"),
+            proto::StepState::Unspecified
+        );
+    }
+
+    // --- JSON / Struct conversions ---
+
+    #[test]
+    fn test_json_to_struct_simple_object() {
+        let json = json!({
+            "name": "test",
+            "value": 42
+        });
+
+        let result = json_to_struct(json);
+        assert!(result.is_some());
+
+        let s = result.unwrap();
+        assert_eq!(s.fields.len(), 2);
+        assert!(s.fields.contains_key("name"));
+        assert!(s.fields.contains_key("value"));
+    }
+
+    #[test]
+    fn test_json_to_struct_non_object_returns_none() {
+        assert!(json_to_struct(json!("string")).is_none());
+        assert!(json_to_struct(json!(42)).is_none());
+        assert!(json_to_struct(json!(true)).is_none());
+        assert!(json_to_struct(json!(null)).is_none());
+        assert!(json_to_struct(json!([1, 2, 3])).is_none());
+    }
+
+    #[test]
+    fn test_json_to_struct_empty_object() {
+        let result = json_to_struct(json!({}));
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().fields.len(), 0);
+    }
+
+    #[test]
+    fn test_json_to_struct_nested_object() {
+        let json = json!({
+            "outer": {
+                "inner": "value"
+            }
+        });
+
+        let result = json_to_struct(json);
+        assert!(result.is_some());
+        let s = result.unwrap();
+        assert!(s.fields.contains_key("outer"));
+    }
+
+    #[test]
+    fn test_json_struct_roundtrip() {
+        let original = json!({
+            "string_val": "hello",
+            "number_val": 3.14,
+            "bool_val": true,
+            "null_val": null,
+            "array_val": [1, 2, 3],
+            "nested": {"key": "value"}
+        });
+
+        let proto_struct = json_to_struct(original.clone()).unwrap();
+        let roundtripped = struct_to_json(proto_struct);
+
+        assert_eq!(roundtripped["string_val"], "hello");
+        assert_eq!(roundtripped["bool_val"], true);
+        assert!(roundtripped["null_val"].is_null());
+        assert_eq!(roundtripped["nested"]["key"], "value");
+    }
+
+    #[test]
+    fn test_json_to_prost_value_all_types() {
+        // Null
+        let v = json_to_prost_value(json!(null));
+        assert!(matches!(
+            v.kind,
+            Some(prost_types::value::Kind::NullValue(_))
+        ));
+
+        // Bool
+        let v = json_to_prost_value(json!(true));
+        assert!(matches!(
+            v.kind,
+            Some(prost_types::value::Kind::BoolValue(true))
+        ));
+
+        // Number
+        let v = json_to_prost_value(json!(42));
+        assert!(matches!(
+            v.kind,
+            Some(prost_types::value::Kind::NumberValue(n)) if (n - 42.0).abs() < f64::EPSILON
+        ));
+
+        // String
+        let v = json_to_prost_value(json!("hello"));
+        assert!(matches!(
+            v.kind,
+            Some(prost_types::value::Kind::StringValue(ref s)) if s == "hello"
+        ));
+
+        // Array
+        let v = json_to_prost_value(json!([1, 2]));
+        assert!(matches!(
+            v.kind,
+            Some(prost_types::value::Kind::ListValue(_))
+        ));
+
+        // Object
+        let v = json_to_prost_value(json!({"k": "v"}));
+        assert!(matches!(
+            v.kind,
+            Some(prost_types::value::Kind::StructValue(_))
+        ));
+    }
+
+    #[test]
+    fn test_prost_value_to_json_none_kind() {
+        let v = prost_types::Value { kind: None };
+        assert!(prost_value_to_json(v).is_null());
+    }
+
+    // --- UUID parsing ---
+
+    #[test]
+    fn test_parse_uuid_valid() {
+        let uuid_str = "550e8400-e29b-41d4-a716-446655440000";
+        let result = parse_uuid(uuid_str);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().to_string(), uuid_str);
+    }
+
+    #[test]
+    fn test_parse_uuid_invalid() {
+        let result = parse_uuid("not-a-uuid");
+        assert!(result.is_err());
+        let status = result.unwrap_err();
+        assert_eq!(status.code(), tonic::Code::InvalidArgument);
+        assert!(status.message().contains("Invalid UUID"));
+    }
+
+    #[test]
+    fn test_parse_uuid_empty() {
+        let result = parse_uuid("");
+        assert!(result.is_err());
+    }
+
+    // --- Service error conversions ---
+
+    #[test]
+    fn test_task_service_error_to_status_not_found() {
+        let err = crate::services::TaskServiceError::NotFound(Uuid::now_v7());
+        let status = task_service_error_to_status(&err);
+        assert_eq!(status.code(), tonic::Code::NotFound);
+    }
+
+    #[test]
+    fn test_task_service_error_to_status_duplicate() {
+        let err = crate::services::TaskServiceError::DuplicateTask("dup".to_string());
+        let status = task_service_error_to_status(&err);
+        assert_eq!(status.code(), tonic::Code::AlreadyExists);
+    }
+
+    #[test]
+    fn test_task_service_error_to_status_validation() {
+        let err = crate::services::TaskServiceError::Validation("bad input".to_string());
+        let status = task_service_error_to_status(&err);
+        assert_eq!(status.code(), tonic::Code::InvalidArgument);
+    }
+
+    #[test]
+    fn test_task_service_error_to_status_template_not_found() {
+        let err = crate::services::TaskServiceError::TemplateNotFound("missing".to_string());
+        let status = task_service_error_to_status(&err);
+        assert_eq!(status.code(), tonic::Code::InvalidArgument);
+    }
+
+    #[test]
+    fn test_task_service_error_to_status_backpressure() {
+        let err = crate::services::TaskServiceError::Backpressure {
+            reason: "queue full".to_string(),
+            retry_after_seconds: 30,
+        };
+        let status = task_service_error_to_status(&err);
+        assert_eq!(status.code(), tonic::Code::Unavailable);
+        assert!(status.metadata().contains_key("retry-after"));
+    }
+
+    #[test]
+    fn test_task_service_error_to_status_circuit_breaker() {
+        let err = crate::services::TaskServiceError::CircuitBreakerOpen;
+        let status = task_service_error_to_status(&err);
+        assert_eq!(status.code(), tonic::Code::Unavailable);
+    }
+
+    #[test]
+    fn test_task_service_error_to_status_database() {
+        let err = crate::services::TaskServiceError::Database("connection failed".to_string());
+        let status = task_service_error_to_status(&err);
+        assert_eq!(status.code(), tonic::Code::Internal);
+    }
+
+    #[test]
+    fn test_task_service_error_to_status_internal() {
+        let err = crate::services::TaskServiceError::Internal("unexpected".to_string());
+        let status = task_service_error_to_status(&err);
+        assert_eq!(status.code(), tonic::Code::Internal);
+    }
+
+    #[test]
+    fn test_step_service_error_to_status_not_found() {
+        let err = crate::services::StepServiceError::NotFound(Uuid::now_v7());
+        let status = step_service_error_to_status(&err);
+        assert_eq!(status.code(), tonic::Code::NotFound);
+    }
+
+    #[test]
+    fn test_step_service_error_to_status_validation() {
+        let err = crate::services::StepServiceError::Validation("invalid".to_string());
+        let status = step_service_error_to_status(&err);
+        assert_eq!(status.code(), tonic::Code::InvalidArgument);
+    }
+
+    #[test]
+    fn test_step_service_error_to_status_ownership_mismatch() {
+        let err = crate::services::StepServiceError::OwnershipMismatch;
+        let status = step_service_error_to_status(&err);
+        assert_eq!(status.code(), tonic::Code::InvalidArgument);
+    }
+
+    #[test]
+    fn test_step_service_error_to_status_database() {
+        let err = crate::services::StepServiceError::Database("query failed".to_string());
+        let status = step_service_error_to_status(&err);
+        assert_eq!(status.code(), tonic::Code::Internal);
+    }
+}

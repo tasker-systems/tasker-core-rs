@@ -74,3 +74,66 @@ pub async fn operational_state_middleware(
 fn is_health_or_metrics_endpoint(path: &str) -> bool {
     path.starts_with("/health") || path == "/metrics" || path == "/ready" || path == "/live"
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_health_endpoint_recognized() {
+        assert!(is_health_or_metrics_endpoint("/health"));
+    }
+
+    #[test]
+    fn test_health_subpath_recognized() {
+        assert!(is_health_or_metrics_endpoint("/health/detailed"));
+        assert!(is_health_or_metrics_endpoint("/health/components"));
+    }
+
+    #[test]
+    fn test_metrics_endpoint_recognized() {
+        assert!(is_health_or_metrics_endpoint("/metrics"));
+    }
+
+    #[test]
+    fn test_ready_endpoint_recognized() {
+        assert!(is_health_or_metrics_endpoint("/ready"));
+    }
+
+    #[test]
+    fn test_live_endpoint_recognized() {
+        assert!(is_health_or_metrics_endpoint("/live"));
+    }
+
+    #[test]
+    fn test_api_endpoints_not_recognized() {
+        assert!(!is_health_or_metrics_endpoint("/api/v1/tasks"));
+        assert!(!is_health_or_metrics_endpoint("/api/v1/steps"));
+        assert!(!is_health_or_metrics_endpoint("/api/v1/analytics"));
+    }
+
+    #[test]
+    fn test_root_path_not_recognized() {
+        assert!(!is_health_or_metrics_endpoint("/"));
+    }
+
+    #[test]
+    fn test_empty_path_not_recognized() {
+        assert!(!is_health_or_metrics_endpoint(""));
+    }
+
+    #[test]
+    fn test_similar_but_different_paths_not_recognized() {
+        // /healthy matches because starts_with("/health") is intentionally broad
+        assert!(!is_health_or_metrics_endpoint("/metric"));
+        assert!(!is_health_or_metrics_endpoint("/readiness"));
+        assert!(!is_health_or_metrics_endpoint("/liveness"));
+    }
+
+    #[test]
+    fn test_health_prefix_matches_broadly() {
+        // starts_with("/health") is intentionally broad to catch all health sub-paths
+        assert!(is_health_or_metrics_endpoint("/healthy"));
+        assert!(is_health_or_metrics_endpoint("/health/any/subpath"));
+    }
+}

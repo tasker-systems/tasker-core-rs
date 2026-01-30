@@ -356,3 +356,110 @@ impl TaskService {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- TaskServiceError Display messages ---
+
+    #[test]
+    fn test_error_display_validation() {
+        let err = TaskServiceError::Validation("missing name".to_string());
+        assert_eq!(err.to_string(), "Validation error: missing name");
+    }
+
+    #[test]
+    fn test_error_display_not_found() {
+        let uuid = Uuid::now_v7();
+        let err = TaskServiceError::NotFound(uuid);
+        assert!(err.to_string().contains(&uuid.to_string()));
+    }
+
+    #[test]
+    fn test_error_display_template_not_found() {
+        let err = TaskServiceError::TemplateNotFound("process_order".to_string());
+        assert_eq!(err.to_string(), "Template not found: process_order");
+    }
+
+    #[test]
+    fn test_error_display_invalid_configuration() {
+        let err = TaskServiceError::InvalidConfiguration("bad version".to_string());
+        assert_eq!(err.to_string(), "Invalid configuration: bad version");
+    }
+
+    #[test]
+    fn test_error_display_duplicate_task() {
+        let err = TaskServiceError::DuplicateTask("task-123".to_string());
+        assert_eq!(err.to_string(), "Duplicate task: task-123");
+    }
+
+    #[test]
+    fn test_error_display_cannot_cancel() {
+        let err = TaskServiceError::CannotCancel("already complete".to_string());
+        assert_eq!(
+            err.to_string(),
+            "Task cannot be cancelled: already complete"
+        );
+    }
+
+    #[test]
+    fn test_error_display_backpressure() {
+        let err = TaskServiceError::Backpressure {
+            reason: "queue full".to_string(),
+            retry_after_seconds: 30,
+        };
+        assert!(err.to_string().contains("queue full"));
+    }
+
+    #[test]
+    fn test_error_display_circuit_breaker_open() {
+        let err = TaskServiceError::CircuitBreakerOpen;
+        assert_eq!(err.to_string(), "Circuit breaker open");
+    }
+
+    #[test]
+    fn test_error_display_database() {
+        let err = TaskServiceError::Database("connection refused".to_string());
+        assert_eq!(err.to_string(), "Database error: connection refused");
+    }
+
+    #[test]
+    fn test_error_display_internal() {
+        let err = TaskServiceError::Internal("unexpected".to_string());
+        assert_eq!(err.to_string(), "Internal error: unexpected");
+    }
+
+    // --- is_client_error classification ---
+
+    #[test]
+    fn test_client_errors() {
+        assert!(TaskServiceError::Validation("x".to_string()).is_client_error());
+        assert!(TaskServiceError::NotFound(Uuid::now_v7()).is_client_error());
+        assert!(TaskServiceError::TemplateNotFound("x".to_string()).is_client_error());
+        assert!(TaskServiceError::InvalidConfiguration("x".to_string()).is_client_error());
+        assert!(TaskServiceError::DuplicateTask("x".to_string()).is_client_error());
+        assert!(TaskServiceError::CannotCancel("x".to_string()).is_client_error());
+    }
+
+    #[test]
+    fn test_server_errors() {
+        assert!(!TaskServiceError::Backpressure {
+            reason: "x".to_string(),
+            retry_after_seconds: 1,
+        }
+        .is_client_error());
+        assert!(!TaskServiceError::CircuitBreakerOpen.is_client_error());
+        assert!(!TaskServiceError::Database("x".to_string()).is_client_error());
+        assert!(!TaskServiceError::Internal("x".to_string()).is_client_error());
+    }
+
+    // --- Debug output ---
+
+    #[test]
+    fn test_error_debug_format() {
+        let err = TaskServiceError::Validation("test".to_string());
+        let debug = format!("{:?}", err);
+        assert!(debug.contains("Validation"));
+    }
+}

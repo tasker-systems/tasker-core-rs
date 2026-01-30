@@ -80,3 +80,189 @@ impl From<crate::orchestration::backoff_calculator::BackoffError> for Orchestrat
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::orchestration::backoff_calculator::BackoffError;
+    use uuid::Uuid;
+
+    // --- FinalizationError → OrchestrationError conversions ---
+
+    #[test]
+    fn test_finalization_database_error_converts_to_database_error() {
+        let sqlx_err = sqlx::Error::ColumnNotFound("test_column".to_string());
+        let finalization_err = FinalizationError::Database(sqlx_err);
+        let orch_err: OrchestrationError = finalization_err.into();
+
+        match orch_err {
+            OrchestrationError::DatabaseError { operation, reason } => {
+                assert_eq!(operation, "task_finalization");
+                assert!(reason.contains("test_column"));
+            }
+            other => panic!("Expected DatabaseError, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_finalization_task_not_found_converts_to_invalid_task_state() {
+        let task_uuid = Uuid::now_v7();
+        let finalization_err = FinalizationError::TaskNotFound { task_uuid };
+        let orch_err: OrchestrationError = finalization_err.into();
+
+        match orch_err {
+            OrchestrationError::InvalidTaskState {
+                task_uuid: err_uuid,
+                current_state,
+                expected_states,
+            } => {
+                assert_eq!(err_uuid, task_uuid);
+                assert_eq!(current_state, "not_found");
+                assert_eq!(expected_states, vec!["exists".to_string()]);
+            }
+            other => panic!("Expected InvalidTaskState, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_finalization_state_machine_error_converts_to_state_transition_failed() {
+        let task_uuid = Uuid::now_v7();
+        let finalization_err = FinalizationError::StateMachine {
+            task_uuid,
+            error: "invalid guard".to_string(),
+        };
+        let orch_err: OrchestrationError = finalization_err.into();
+
+        match orch_err {
+            OrchestrationError::StateTransitionFailed {
+                entity_type,
+                entity_uuid,
+                reason,
+            } => {
+                assert_eq!(entity_type, "task");
+                assert_eq!(entity_uuid, task_uuid);
+                assert!(reason.contains("invalid guard"));
+            }
+            other => panic!("Expected StateTransitionFailed, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_finalization_invalid_transition_converts_to_state_transition_failed() {
+        let task_uuid = Uuid::now_v7();
+        let finalization_err = FinalizationError::InvalidTransition {
+            transition: "complete_to_pending".to_string(),
+            task_uuid,
+        };
+        let orch_err: OrchestrationError = finalization_err.into();
+
+        match orch_err {
+            OrchestrationError::StateTransitionFailed {
+                entity_type,
+                entity_uuid,
+                reason,
+            } => {
+                assert_eq!(entity_type, "task");
+                assert_eq!(entity_uuid, task_uuid);
+                assert!(reason.contains("complete_to_pending"));
+            }
+            other => panic!("Expected StateTransitionFailed, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_finalization_context_unavailable_converts_to_configuration_error() {
+        let task_uuid = Uuid::now_v7();
+        let finalization_err = FinalizationError::ContextUnavailable { task_uuid };
+        let orch_err: OrchestrationError = finalization_err.into();
+
+        match orch_err {
+            OrchestrationError::ConfigurationError {
+                config_source,
+                reason,
+            } => {
+                assert_eq!(config_source, "task_finalizer");
+                assert!(reason.contains(&task_uuid.to_string()));
+            }
+            other => panic!("Expected ConfigurationError, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_finalization_event_publishing_converts_to_event_publishing_error() {
+        let finalization_err = FinalizationError::EventPublishing("queue full".to_string());
+        let orch_err: OrchestrationError = finalization_err.into();
+
+        match orch_err {
+            OrchestrationError::EventPublishingError { event_type, reason } => {
+                assert_eq!(event_type, "task_finalization");
+                assert_eq!(reason, "queue full");
+            }
+            other => panic!("Expected EventPublishingError, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_finalization_general_converts_to_configuration_error() {
+        let finalization_err = FinalizationError::General("unexpected failure".to_string());
+        let orch_err: OrchestrationError = finalization_err.into();
+
+        match orch_err {
+            OrchestrationError::ConfigurationError {
+                config_source,
+                reason,
+            } => {
+                assert_eq!(config_source, "task_finalizer");
+                assert_eq!(reason, "unexpected failure");
+            }
+            other => panic!("Expected ConfigurationError, got: {other:?}"),
+        }
+    }
+
+    // --- BackoffError → OrchestrationError conversions ---
+
+    #[test]
+    fn test_backoff_database_error_converts_to_database_error() {
+        let sqlx_err = sqlx::Error::ColumnNotFound("backoff_col".to_string());
+        let backoff_err = BackoffError::Database(sqlx_err);
+        let orch_err: OrchestrationError = backoff_err.into();
+
+        match orch_err {
+            OrchestrationError::DatabaseError { operation, reason } => {
+                assert_eq!(operation, "backoff_calculation");
+                assert!(reason.contains("backoff_col"));
+            }
+            other => panic!("Expected DatabaseError, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_backoff_invalid_config_converts_to_configuration_error() {
+        let backoff_err = BackoffError::InvalidConfig("negative delay".to_string());
+        let orch_err: OrchestrationError = backoff_err.into();
+
+        match orch_err {
+            OrchestrationError::ConfigurationError {
+                config_source,
+                reason,
+            } => {
+                assert_eq!(config_source, "backoff_calculator");
+                assert_eq!(reason, "negative delay");
+            }
+            other => panic!("Expected ConfigurationError, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_backoff_step_not_found_converts_to_step_handler_not_found() {
+        let backoff_err = BackoffError::StepNotFound(42);
+        let orch_err: OrchestrationError = backoff_err.into();
+
+        match orch_err {
+            OrchestrationError::StepHandlerNotFound { reason, .. } => {
+                assert!(reason.contains("42"));
+            }
+            other => panic!("Expected StepHandlerNotFound, got: {other:?}"),
+        }
+    }
+}

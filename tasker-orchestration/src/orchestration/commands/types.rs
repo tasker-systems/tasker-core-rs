@@ -218,3 +218,325 @@ pub struct SystemHealth {
     /// Whether health data has been evaluated (false means Unknown state)
     pub health_evaluated: bool,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+
+    // --- TaskInitializeResult ---
+
+    #[test]
+    fn test_task_initialize_result_success() {
+        let uuid = Uuid::now_v7();
+        let result = TaskInitializeResult::Success {
+            task_uuid: uuid,
+            message: "Task created".to_string(),
+        };
+
+        assert!(matches!(result, TaskInitializeResult::Success { .. }));
+        let json = serde_json::to_value(&result).unwrap();
+        assert_eq!(json["Success"]["task_uuid"], uuid.to_string());
+        assert_eq!(json["Success"]["message"], "Task created");
+    }
+
+    #[test]
+    fn test_task_initialize_result_failed() {
+        let result = TaskInitializeResult::Failed {
+            error: "validation failed".to_string(),
+        };
+
+        let json = serde_json::to_string(&result).unwrap();
+        let deserialized: TaskInitializeResult = serde_json::from_str(&json).unwrap();
+        assert!(matches!(deserialized, TaskInitializeResult::Failed { .. }));
+    }
+
+    #[test]
+    fn test_task_initialize_result_skipped() {
+        let result = TaskInitializeResult::Skipped {
+            reason: "duplicate".to_string(),
+        };
+
+        let json = serde_json::to_value(&result).unwrap();
+        assert_eq!(json["Skipped"]["reason"], "duplicate");
+    }
+
+    #[test]
+    fn test_task_initialize_result_clone() {
+        let uuid = Uuid::now_v7();
+        let result = TaskInitializeResult::Success {
+            task_uuid: uuid,
+            message: "cloned".to_string(),
+        };
+        let cloned = result.clone();
+        let original_json = serde_json::to_string(&result).unwrap();
+        let cloned_json = serde_json::to_string(&cloned).unwrap();
+        assert_eq!(original_json, cloned_json);
+    }
+
+    // --- StepProcessResult ---
+
+    #[test]
+    fn test_step_process_result_all_variants() {
+        let success = StepProcessResult::Success {
+            message: "step completed".to_string(),
+        };
+        let failed = StepProcessResult::Failed {
+            error: "timeout".to_string(),
+        };
+        let skipped = StepProcessResult::Skipped {
+            reason: "already processed".to_string(),
+        };
+
+        assert!(matches!(success, StepProcessResult::Success { .. }));
+        assert!(matches!(failed, StepProcessResult::Failed { .. }));
+        assert!(matches!(skipped, StepProcessResult::Skipped { .. }));
+    }
+
+    #[test]
+    fn test_step_process_result_serialization_roundtrip() {
+        let result = StepProcessResult::Success {
+            message: "processed".to_string(),
+        };
+        let json = serde_json::to_string(&result).unwrap();
+        let deserialized: StepProcessResult = serde_json::from_str(&json).unwrap();
+        assert!(matches!(deserialized, StepProcessResult::Success { .. }));
+    }
+
+    // --- TaskReadinessResult ---
+
+    #[test]
+    fn test_task_readiness_result_construction() {
+        let uuid = Uuid::now_v7();
+        let result = TaskReadinessResult {
+            task_uuid: uuid,
+            namespace: "fulfillment".to_string(),
+            steps_enqueued: 5,
+            steps_discovered: 8,
+            triggered_by: "step_transition".to_string(),
+            processing_time_ms: 42,
+        };
+
+        assert_eq!(result.task_uuid, uuid);
+        assert_eq!(result.namespace, "fulfillment");
+        assert_eq!(result.steps_enqueued, 5);
+        assert_eq!(result.steps_discovered, 8);
+    }
+
+    #[test]
+    fn test_task_readiness_result_serialization_roundtrip() {
+        let result = TaskReadinessResult {
+            task_uuid: Uuid::now_v7(),
+            namespace: "test".to_string(),
+            steps_enqueued: 3,
+            steps_discovered: 10,
+            triggered_by: "task_start".to_string(),
+            processing_time_ms: 100,
+        };
+
+        let json = serde_json::to_string(&result).unwrap();
+        let deserialized: TaskReadinessResult = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.namespace, "test");
+        assert_eq!(deserialized.steps_enqueued, 3);
+    }
+
+    // --- TaskFinalizationResult ---
+
+    #[test]
+    fn test_task_finalization_result_success() {
+        let uuid = Uuid::now_v7();
+        let now = Utc::now();
+        let result = TaskFinalizationResult::Success {
+            task_uuid: uuid,
+            final_status: "complete".to_string(),
+            completion_time: Some(now),
+        };
+
+        let json = serde_json::to_value(&result).unwrap();
+        assert_eq!(json["Success"]["final_status"], "complete");
+    }
+
+    #[test]
+    fn test_task_finalization_result_success_no_completion_time() {
+        let uuid = Uuid::now_v7();
+        let result = TaskFinalizationResult::Success {
+            task_uuid: uuid,
+            final_status: "error".to_string(),
+            completion_time: None,
+        };
+
+        let json = serde_json::to_string(&result).unwrap();
+        let deserialized: TaskFinalizationResult = serde_json::from_str(&json).unwrap();
+        assert!(matches!(
+            deserialized,
+            TaskFinalizationResult::Success { .. }
+        ));
+    }
+
+    #[test]
+    fn test_task_finalization_result_not_claimed() {
+        let result = TaskFinalizationResult::NotClaimed {
+            reason: "already finalized".to_string(),
+            already_claimed_by: Some(Uuid::now_v7()),
+        };
+
+        let json = serde_json::to_value(&result).unwrap();
+        assert!(json["NotClaimed"]["already_claimed_by"].is_string());
+    }
+
+    #[test]
+    fn test_task_finalization_result_not_claimed_unknown_claimer() {
+        let result = TaskFinalizationResult::NotClaimed {
+            reason: "race condition".to_string(),
+            already_claimed_by: None,
+        };
+
+        let json = serde_json::to_value(&result).unwrap();
+        assert!(json["NotClaimed"]["already_claimed_by"].is_null());
+    }
+
+    #[test]
+    fn test_task_finalization_result_failed() {
+        let result = TaskFinalizationResult::Failed {
+            error: "database error".to_string(),
+        };
+
+        let json = serde_json::to_string(&result).unwrap();
+        assert!(json.contains("database error"));
+    }
+
+    // --- OrchestrationProcessingStats ---
+
+    #[test]
+    fn test_orchestration_processing_stats_construction() {
+        let mut queue_sizes = HashMap::new();
+        queue_sizes.insert("task_requests".to_string(), 42i64);
+        queue_sizes.insert("step_results".to_string(), 100i64);
+
+        let stats = OrchestrationProcessingStats {
+            task_requests_processed: 1000,
+            step_results_processed: 5000,
+            tasks_finalized: 800,
+            tasks_ready_processed: 1200,
+            processing_errors: 10,
+            current_queue_sizes: queue_sizes,
+        };
+
+        assert_eq!(stats.task_requests_processed, 1000);
+        assert_eq!(stats.step_results_processed, 5000);
+        assert_eq!(stats.processing_errors, 10);
+        assert_eq!(stats.current_queue_sizes.len(), 2);
+    }
+
+    #[test]
+    fn test_orchestration_processing_stats_serialization() {
+        let stats = OrchestrationProcessingStats {
+            task_requests_processed: 0,
+            step_results_processed: 0,
+            tasks_finalized: 0,
+            tasks_ready_processed: 0,
+            processing_errors: 0,
+            current_queue_sizes: HashMap::new(),
+        };
+
+        let json = serde_json::to_string(&stats).unwrap();
+        let deserialized: OrchestrationProcessingStats = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.task_requests_processed, 0);
+        assert!(deserialized.current_queue_sizes.is_empty());
+    }
+
+    // --- SystemHealth ---
+
+    #[test]
+    fn test_system_health_healthy_state() {
+        let health = SystemHealth {
+            status: "healthy".to_string(),
+            database_connected: true,
+            message_queues_healthy: true,
+            active_processors: 4,
+            circuit_breaker_open: false,
+            circuit_breaker_failures: 0,
+            command_channel_saturation_percent: 15.0,
+            backpressure_active: false,
+            queue_depth_tier: "Normal".to_string(),
+            queue_depth_max: 50,
+            queue_depth_worst_queue: "step_results".to_string(),
+            health_evaluated: true,
+        };
+
+        assert_eq!(health.status, "healthy");
+        assert!(health.database_connected);
+        assert!(health.message_queues_healthy);
+        assert!(!health.circuit_breaker_open);
+        assert!(!health.backpressure_active);
+        assert!(health.health_evaluated);
+    }
+
+    #[test]
+    fn test_system_health_degraded_state() {
+        let health = SystemHealth {
+            status: "degraded".to_string(),
+            database_connected: true,
+            message_queues_healthy: false,
+            active_processors: 2,
+            circuit_breaker_open: false,
+            circuit_breaker_failures: 3,
+            command_channel_saturation_percent: 85.0,
+            backpressure_active: true,
+            queue_depth_tier: "Warning".to_string(),
+            queue_depth_max: 5000,
+            queue_depth_worst_queue: "task_requests".to_string(),
+            health_evaluated: true,
+        };
+
+        assert_eq!(health.status, "degraded");
+        assert!(health.backpressure_active);
+        assert_eq!(health.queue_depth_tier, "Warning");
+    }
+
+    #[test]
+    fn test_system_health_serialization_roundtrip() {
+        let health = SystemHealth {
+            status: "unhealthy".to_string(),
+            database_connected: false,
+            message_queues_healthy: false,
+            active_processors: 0,
+            circuit_breaker_open: true,
+            circuit_breaker_failures: 10,
+            command_channel_saturation_percent: 99.5,
+            backpressure_active: true,
+            queue_depth_tier: "Overflow".to_string(),
+            queue_depth_max: 100000,
+            queue_depth_worst_queue: "all".to_string(),
+            health_evaluated: true,
+        };
+
+        let json = serde_json::to_string(&health).unwrap();
+        let deserialized: SystemHealth = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.status, "unhealthy");
+        assert!(!deserialized.database_connected);
+        assert!(deserialized.circuit_breaker_open);
+        assert_eq!(deserialized.command_channel_saturation_percent, 99.5);
+    }
+
+    #[test]
+    fn test_system_health_unevaluated() {
+        let health = SystemHealth {
+            status: "unknown".to_string(),
+            database_connected: false,
+            message_queues_healthy: false,
+            active_processors: 0,
+            circuit_breaker_open: false,
+            circuit_breaker_failures: 0,
+            command_channel_saturation_percent: 0.0,
+            backpressure_active: false,
+            queue_depth_tier: "Unknown".to_string(),
+            queue_depth_max: 0,
+            queue_depth_worst_queue: String::new(),
+            health_evaluated: false,
+        };
+
+        assert!(!health.health_evaluated);
+        assert_eq!(health.status, "unknown");
+    }
+}

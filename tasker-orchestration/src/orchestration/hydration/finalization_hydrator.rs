@@ -147,11 +147,171 @@ impl Default for FinalizationHydrator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::Utc;
+    use serde_json::json;
+    use tasker_shared::messaging::service::{MessageHandle, MessageMetadata};
+
+    fn create_pgmq_message(payload: serde_json::Value) -> PgmqMessage {
+        PgmqMessage {
+            msg_id: 1,
+            message: payload,
+            vt: Utc::now(),
+            read_ct: 1,
+            enqueued_at: Utc::now(),
+        }
+    }
+
+    fn create_queued_message(payload: serde_json::Value) -> QueuedMessage<serde_json::Value> {
+        QueuedMessage::with_handle(
+            payload,
+            MessageHandle::Pgmq {
+                msg_id: 1,
+                queue_name: "test_finalization_queue".to_string(),
+            },
+            MessageMetadata::new(1, Utc::now()),
+        )
+    }
+
+    // --- Construction and trait tests ---
 
     #[test]
     fn test_finalization_hydrator_construction() {
-        // Verify the hydrator can be constructed
         let _hydrator = FinalizationHydrator::new();
         let _hydrator = FinalizationHydrator;
+    }
+
+    #[test]
+    fn test_default_impl() {
+        let hydrator = FinalizationHydrator::default();
+        // Verify Debug impl produces expected output
+        let debug_str = format!("{:?}", hydrator);
+        assert_eq!(debug_str, "FinalizationHydrator");
+    }
+
+    // --- hydrate_from_message tests (PgmqMessage) ---
+
+    #[tokio::test]
+    async fn test_hydrate_from_message_valid_uuid() {
+        let hydrator = FinalizationHydrator::new();
+        let uuid = Uuid::now_v7();
+        let message = create_pgmq_message(json!({"task_uuid": uuid.to_string()}));
+
+        let result = hydrator.hydrate_from_message(&message).await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), uuid);
+    }
+
+    #[tokio::test]
+    async fn test_hydrate_from_message_missing_task_uuid() {
+        let hydrator = FinalizationHydrator::new();
+        let message = create_pgmq_message(json!({"other_field": "value"}));
+
+        let result = hydrator.hydrate_from_message(&message).await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.to_string().contains("task_uuid"),
+            "Error should mention task_uuid: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_hydrate_from_message_invalid_uuid_string() {
+        let hydrator = FinalizationHydrator::new();
+        let message = create_pgmq_message(json!({"task_uuid": "not-a-valid-uuid"}));
+
+        let result = hydrator.hydrate_from_message(&message).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_hydrate_from_message_null_task_uuid() {
+        let hydrator = FinalizationHydrator::new();
+        let message = create_pgmq_message(json!({"task_uuid": null}));
+
+        let result = hydrator.hydrate_from_message(&message).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_hydrate_from_message_numeric_task_uuid() {
+        let hydrator = FinalizationHydrator::new();
+        let message = create_pgmq_message(json!({"task_uuid": 12345}));
+
+        let result = hydrator.hydrate_from_message(&message).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_hydrate_from_message_empty_object() {
+        let hydrator = FinalizationHydrator::new();
+        let message = create_pgmq_message(json!({}));
+
+        let result = hydrator.hydrate_from_message(&message).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_hydrate_from_message_empty_string_uuid() {
+        let hydrator = FinalizationHydrator::new();
+        let message = create_pgmq_message(json!({"task_uuid": ""}));
+
+        let result = hydrator.hydrate_from_message(&message).await;
+        assert!(result.is_err());
+    }
+
+    // --- hydrate_from_queued_message tests (QueuedMessage) ---
+
+    #[tokio::test]
+    async fn test_hydrate_from_queued_message_valid_uuid() {
+        let hydrator = FinalizationHydrator::new();
+        let uuid = Uuid::now_v7();
+        let message = create_queued_message(json!({"task_uuid": uuid.to_string()}));
+
+        let result = hydrator.hydrate_from_queued_message(&message).await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), uuid);
+    }
+
+    #[tokio::test]
+    async fn test_hydrate_from_queued_message_missing_task_uuid() {
+        let hydrator = FinalizationHydrator::new();
+        let message = create_queued_message(json!({"other": "value"}));
+
+        let result = hydrator.hydrate_from_queued_message(&message).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_hydrate_from_queued_message_invalid_uuid() {
+        let hydrator = FinalizationHydrator::new();
+        let message = create_queued_message(json!({"task_uuid": "invalid-uuid-format"}));
+
+        let result = hydrator.hydrate_from_queued_message(&message).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_hydrate_from_queued_message_null_task_uuid() {
+        let hydrator = FinalizationHydrator::new();
+        let message = create_queued_message(json!({"task_uuid": null}));
+
+        let result = hydrator.hydrate_from_queued_message(&message).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_hydrate_from_queued_message_extra_fields_ignored() {
+        let hydrator = FinalizationHydrator::new();
+        let uuid = Uuid::now_v7();
+        let message = create_queued_message(json!({
+            "task_uuid": uuid.to_string(),
+            "extra_field": "ignored",
+            "another": 42
+        }));
+
+        let result = hydrator.hydrate_from_queued_message(&message).await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), uuid);
     }
 }
