@@ -1,0 +1,865 @@
+# Tasker Configuration Reference — common
+# Environment: development
+#
+# This is an annotated configuration file showing all available parameters
+# with their default values and documentation.
+#
+# Generate a deployable config: tasker-cli config generate
+# Look up a parameter:         tasker-cli docs explain -p <path>
+
+
+# ─────────────────────────────────────────────────────────────
+# backoff
+# ─────────────────────────────────────────────────────────────
+[common.backoff]
+# Multiplier applied to the previous delay for exponential backoff calculations
+# Type: f64 | Range: 1.0-10.0
+backoff_multiplier = 2.0
+# Sequence of backoff delays in seconds for successive retry attempts
+# Type: Vec<u32> | Range: non-empty array of positive integers
+default_backoff_seconds = [1, 5, 15, 30, 60]
+# Add random jitter to backoff delays to prevent thundering herd on retry
+# Type: bool | Range: true/false
+jitter_enabled = true
+# Maximum jitter as a fraction of the computed backoff delay
+# Type: f64 | Range: 0.0-1.0
+jitter_max_percentage = 0.15
+# Hard upper limit on any single backoff delay
+# Type: u32 | Range: 1-3600
+max_backoff_seconds = 3600
+
+
+# reenqueue_delays
+[common.backoff.reenqueue_delays]
+# Delay in seconds before re-evaluating a task that is blocked due to step failures
+# Type: u32 | Range: 0-3600
+blocked_by_failures = 120
+enqueuing_steps = 5
+evaluating_results = 10
+# Delay in seconds before re-enqueueing a task stuck in the Initializing state
+# Type: u32 | Range: 0-300
+initializing = 10
+steps_in_process = 15
+# Delay in seconds before re-checking a task that is waiting for upstream step dependencies
+# Type: u32 | Range: 0-3600
+waiting_for_dependencies = 60
+waiting_for_retry = 30
+
+# ─────────────────────────────────────────────────────────────
+# cache
+# ─────────────────────────────────────────────────────────────
+[common.cache]
+analytics_ttl_seconds = 60
+# Cache backend implementation: 'redis' (distributed) or 'moka' (in-process)
+# Type: String | Range: redis | moka
+backend = "redis"
+# Default time-to-live in seconds for cached entries
+# Type: u32 | Range: 1-86400
+default_ttl_seconds = 3600
+# Enable the distributed cache layer for template and analytics data
+# Type: bool | Range: true/false
+enabled = false
+# Prefix applied to all cache keys to namespace entries
+# Type: String | Range: non-empty string
+key_prefix = "tasker"
+template_ttl_seconds = 3600
+
+
+# moka
+[common.cache.moka]
+# Maximum number of entries the in-process Moka cache can hold
+# Type: u64 | Range: 1-1000000
+max_capacity = 10000
+
+# redis
+[common.cache.redis]
+connection_timeout_seconds = 5
+# Redis database number (0-15)
+# Type: u32 | Range: 0-15
+database = 0
+max_connections = 10
+# Redis connection URL
+# Type: String | Range: valid Redis URI
+url = "${REDIS_URL:-redis://localhost:6379}"
+
+# ─────────────────────────────────────────────────────────────
+# circuit_breakers
+# ─────────────────────────────────────────────────────────────
+[common.circuit_breakers]
+# Master switch for the circuit breaker subsystem
+# Type: bool | Range: true/false
+enabled = true
+
+
+# component_configs
+
+[common.circuit_breakers.component_configs.cache]
+failure_threshold = 5
+success_threshold = 2
+timeout_seconds = 15
+
+[common.circuit_breakers.component_configs.pgmq]
+failure_threshold = 5
+success_threshold = 2
+timeout_seconds = 30
+
+[common.circuit_breakers.component_configs.task_readiness]
+failure_threshold = 10
+success_threshold = 3
+timeout_seconds = 60
+
+# default_config
+[common.circuit_breakers.default_config]
+# Number of consecutive failures before a circuit breaker trips to the Open state
+# Type: u32 | Range: 1-100
+failure_threshold = 5
+# Number of consecutive successes in Half-Open state required to close the circuit breaker
+# Type: u32 | Range: 1-100
+success_threshold = 2
+# Time the circuit breaker remains in Open state before transitioning to Half-Open for a probe
+# Type: u32 | Range: 1-300
+timeout_seconds = 30
+
+# global_settings
+[common.circuit_breakers.global_settings]
+# Maximum number of circuit breaker instances that can be registered
+# Type: u32 | Range: 1-1000
+max_circuit_breakers = 50
+metrics_collection_interval_seconds = 30
+min_state_transition_interval_seconds = 5.0
+
+# ─────────────────────────────────────────────────────────────
+# database
+# ─────────────────────────────────────────────────────────────
+[common.database]
+# Database name used for display and connection verification logging
+# Type: String | Range: valid PostgreSQL database name
+database = "tasker_development"
+# Skip database migration version check at startup
+# Type: bool | Range: true/false
+skip_migration_check = false
+# PostgreSQL connection URL for the primary database
+# Type: String | Range: valid PostgreSQL connection URI
+url = "${DATABASE_URL:-postgresql://localhost/tasker}"
+
+
+# pool
+[common.database.pool]
+# Maximum time to wait when acquiring a connection from the pool
+# Type: u32 | Range: 1-300
+acquire_timeout_seconds = 10
+# Time before an idle connection is closed and removed from the pool
+# Type: u32 | Range: 1-3600
+idle_timeout_seconds = 300
+# Maximum number of concurrent database connections in the pool
+# Type: u32 | Range: 1-1000
+max_connections = 25
+# Maximum total lifetime of a connection before it is closed and replaced
+# Type: u32 | Range: 60-86400
+max_lifetime_seconds = 1800
+# Minimum number of idle connections maintained in the pool
+# Type: u32 | Range: 0-100
+min_connections = 5
+# Threshold in milliseconds above which connection acquisition is logged as slow
+# Type: u32 | Range: 10-60000
+slow_acquire_threshold_ms = 100
+
+# variables
+[common.database.variables]
+# PostgreSQL statement_timeout in milliseconds, set per-connection via SET statement_timeout
+# Type: u32 | Range: 100-600000
+statement_timeout = 30000
+
+# ─────────────────────────────────────────────────────────────
+# execution
+# ─────────────────────────────────────────────────────────────
+[common.execution]
+connection_timeout_seconds = 30
+# Default maximum wall-clock time for an entire task to complete
+# Type: u32 | Range: 1-86400
+default_timeout_seconds = 3600
+# Runtime environment identifier used for configuration context selection and logging
+# Type: String | Range: test | development | production
+environment = "development"
+# Maximum number of steps that can be executing simultaneously across all tasks
+# Type: u32 | Range: 1-1000000
+max_concurrent_steps = 1000
+# Maximum number of tasks that can be actively processed simultaneously
+# Type: u32 | Range: 1-100000
+max_concurrent_tasks = 100
+max_discovery_attempts = 5
+# Default maximum number of retry attempts for a failed step
+# Type: u32 | Range: 0-100
+max_retries = 3
+max_workflow_steps = 10000
+# Number of steps to enqueue in a single batch during task initialization
+# Type: u32 | Range: 1-1000
+step_batch_size = 50
+# Default maximum time for a single step execution before it is considered timed out
+# Type: u32 | Range: 1-3600
+step_execution_timeout_seconds = 600
+
+
+# ─────────────────────────────────────────────────────────────
+# mpsc_channels
+# ─────────────────────────────────────────────────────────────
+
+
+# event_publisher
+[common.mpsc_channels.event_publisher]
+event_queue_buffer_size = 5000
+
+# ffi
+[common.mpsc_channels.ffi]
+ruby_event_buffer_size = 1000
+
+# overflow_policy
+[common.mpsc_channels.overflow_policy]
+drop_policy = "block"
+log_warning_threshold = 0.8
+
+[common.mpsc_channels.overflow_policy.metrics]
+enabled = true
+saturation_check_interval_seconds = 30
+
+# ─────────────────────────────────────────────────────────────
+# pgmq_database
+# ─────────────────────────────────────────────────────────────
+[common.pgmq_database]
+# Enable PGMQ messaging subsystem
+# Type: bool | Range: true/false
+enabled = true
+skip_migration_check = false
+# PostgreSQL connection URL for a dedicated PGMQ database; when empty, PGMQ shares the primary database
+# Type: String | Range: valid PostgreSQL connection URI or empty string
+url = "${PGMQ_DATABASE_URL:-}"
+
+
+# pool
+[common.pgmq_database.pool]
+acquire_timeout_seconds = 5
+idle_timeout_seconds = 300
+max_connections = 15
+max_lifetime_seconds = 1800
+min_connections = 3
+slow_acquire_threshold_ms = 100
+
+# ─────────────────────────────────────────────────────────────
+# queues
+# ─────────────────────────────────────────────────────────────
+[common.queues]
+# Messaging backend: 'pgmq' (PostgreSQL-based, LISTEN/NOTIFY) or 'rabbitmq' (AMQP broker)
+# Type: String | Range: pgmq | rabbitmq
+backend = "${TASKER_MESSAGING_BACKEND:-pgmq}"
+# Default number of messages to dequeue in a single batch read
+# Type: u32 | Range: 1-1000
+default_batch_size = 10
+# Default time a dequeued message remains invisible to other consumers
+# Type: u32 | Range: 1-3600
+default_visibility_timeout_seconds = 30
+# Interval in seconds between queue health check probes
+# Type: u32 | Range: 1-3600
+health_check_interval = 60
+# Hard upper limit on batch size for any single dequeue operation
+# Type: u32 | Range: 1-10000
+max_batch_size = 100
+# Template pattern for constructing queue names from namespace and name
+# Type: String | Range: string containing {namespace} and {name} placeholders
+naming_pattern = "{namespace}_{name}_queue"
+# Namespace prefix for orchestration queue names
+# Type: String | Range: non-empty string
+orchestration_namespace = "orchestration"
+# Namespace prefix for worker queue names
+# Type: String | Range: non-empty string
+worker_namespace = "worker"
+
+
+# orchestration_queues
+[common.queues.orchestration_queues]
+# Queue name for step execution results returned by workers
+# Type: String | Range: valid queue name
+step_results = "orchestration_step_results"
+# Queue name for task finalization messages
+# Type: String | Range: valid queue name
+task_finalizations = "orchestration_task_finalizations"
+# Queue name for incoming task execution requests
+# Type: String | Range: valid queue name
+task_requests = "orchestration_task_requests"
+
+# pgmq
+[common.queues.pgmq]
+# Maximum number of times a failed PGMQ operation is retried before giving up
+# Type: u32 | Range: 0-100
+max_retries = 3
+# Interval in milliseconds between PGMQ polling cycles when no LISTEN/NOTIFY events arrive
+# Type: u32 | Range: 10-10000
+poll_interval_ms = 500
+# Maximum time to wait for in-flight PGMQ operations to complete during graceful shutdown
+# Type: u32 | Range: 1-300
+shutdown_timeout_seconds = 10
+
+[common.queues.pgmq.queue_depth_thresholds]
+# Queue depth at which the API returns HTTP 503 Service Unavailable for new task submissions
+# Type: i64 | Range: 1+
+critical_threshold = 5000
+# Queue depth indicating an emergency condition requiring manual intervention
+# Type: i64 | Range: 1+
+overflow_threshold = 10000
+# Queue depth at which warning-level log messages are emitted
+# Type: i64 | Range: 1+
+warning_threshold = 1000
+
+# rabbitmq
+[common.queues.rabbitmq]
+# Maximum time to wait when establishing a new RabbitMQ connection
+# Type: u32 | Range: 1-300
+connection_timeout_seconds = 10
+# AMQP heartbeat interval for connection liveness detection
+# Type: u16 | Range: 0-3600
+heartbeat_seconds = 30
+# Number of unacknowledged messages RabbitMQ will deliver before waiting for acks
+# Type: u16 | Range: 1-65535
+prefetch_count = 100
+# AMQP connection URL for RabbitMQ; %2F is the URL-encoded default vhost '/'
+# Type: String | Range: valid AMQP URI
+url = "${RABBITMQ_URL:-amqp://guest:guest@localhost:5672/%2F}"
+
+# ─────────────────────────────────────────────────────────────
+# system
+# ─────────────────────────────────────────────────────────────
+[common.system]
+# Default system name assigned to tasks that do not specify a dependent system
+# Type: String | Range: non-empty string
+default_dependent_system = "default"
+# Maximum depth for recursive dependency resolution in workflow graphs
+# Type: u32 | Range: 1-1000
+max_recursion_depth = 50
+# Tasker configuration schema version
+# Type: String | Range: semver
+version = "0.1.0"
+
+
+# ─────────────────────────────────────────────────────────────
+# task_templates
+# ─────────────────────────────────────────────────────────────
+[common.task_templates]
+search_paths = ["config/tasks/**/*.{yml,yaml}"]
+
+
+# ─────────────────────────────────────────────────────────────
+# telemetry
+# ─────────────────────────────────────────────────────────────
+[common.telemetry]
+enabled = true
+sample_rate = 0.1
+service_name = "tasker-core"
+
+# Tasker Configuration Reference — orchestration
+# Environment: development
+#
+# This is an annotated configuration file showing all available parameters
+# with their default values and documentation.
+#
+# Generate a deployable config: tasker-cli config generate
+# Look up a parameter:         tasker-cli docs explain -p <path>
+
+
+# ─────────────────────────────────────────────────────────────
+# orchestration
+# ─────────────────────────────────────────────────────────────
+[orchestration]
+# Enable detailed performance logging for orchestration actors
+# Type: bool | Range: true/false
+enable_performance_logging = true
+# Orchestration deployment mode
+# Type: String | Range: standalone
+mode = "standalone"
+
+
+# ─────────────────────────────────────────────────────────────
+# batch_processing
+# ─────────────────────────────────────────────────────────────
+[orchestration.batch_processing]
+checkpoint_stall_minutes = 15
+default_batch_size = 1000
+enabled = true
+max_parallel_batches = 50
+
+
+# ─────────────────────────────────────────────────────────────
+# decision_points
+# ─────────────────────────────────────────────────────────────
+[orchestration.decision_points]
+enable_detailed_logging = false
+enable_metrics = true
+enabled = true
+max_decision_depth = 20
+max_steps_per_decision = 100
+warn_threshold_depth = 10
+warn_threshold_steps = 50
+
+
+# ─────────────────────────────────────────────────────────────
+# dlq
+# ─────────────────────────────────────────────────────────────
+[orchestration.dlq]
+# Automatically move stale tasks to the DLQ when staleness detection identifies them
+# Type: bool | Range: true/false
+auto_dlq_on_staleness = true
+# Enable the Dead Letter Queue subsystem for handling unrecoverable tasks
+# Type: bool | Range: true/false
+enabled = true
+include_full_task_snapshot = true
+# Maximum age in hours a task can remain in a pending-like state before being considered stale
+# Type: u32 | Range: 1-720
+max_pending_age_hours = 168
+
+
+# reasons
+[orchestration.dlq.reasons]
+dependency_cycle_detected = true
+manual_dlq = true
+max_retries_exceeded = true
+staleness_timeout = true
+worker_unavailable = true
+
+# staleness_detection
+[orchestration.dlq.staleness_detection]
+batch_size = 100
+# Interval in seconds between staleness detection sweeps
+# Type: u32 | Range: 30-3600
+detection_interval_seconds = 300
+# Run staleness detection in observation-only mode without taking action
+# Type: bool | Range: true/false
+dry_run = false
+# Enable periodic scanning for stale tasks
+# Type: bool | Range: true/false
+enabled = true
+
+[orchestration.dlq.staleness_detection.actions]
+auto_move_to_dlq = true
+auto_transition_to_error = true
+emit_events = true
+# PGMQ channel name for staleness detection events
+# Type: String | Range: 1-255 characters
+event_channel = "task_staleness_detected"
+
+[orchestration.dlq.staleness_detection.thresholds]
+steps_in_process_minutes = 30
+# Absolute maximum lifetime for any task regardless of state
+# Type: u32 | Range: 1-168
+task_max_lifetime_hours = 24
+waiting_for_dependencies_minutes = 60
+waiting_for_retry_minutes = 30
+
+# ─────────────────────────────────────────────────────────────
+# event_systems
+# ─────────────────────────────────────────────────────────────
+
+
+# orchestration
+[orchestration.event_systems.orchestration]
+# Event delivery mode: 'Hybrid' (LISTEN/NOTIFY + polling fallback), 'EventDrivenOnly', or 'PollingOnly'
+# Type: DeploymentMode | Range: Hybrid | EventDrivenOnly | PollingOnly
+deployment_mode = "Hybrid"
+# Unique identifier for the orchestration event system instance
+# Type: String | Range: non-empty string
+system_id = "orchestration-event-system"
+
+[orchestration.event_systems.orchestration.health]
+enabled = true
+error_rate_threshold_per_minute = 20
+max_consecutive_errors = 10
+performance_monitoring_enabled = true
+
+[orchestration.event_systems.orchestration.processing]
+batch_size = 20
+max_concurrent_operations = 50
+max_retries = 3
+
+[orchestration.event_systems.orchestration.processing.backoff]
+initial_delay_ms = 100
+jitter_percent = 0.1
+max_delay_ms = 10000
+multiplier = 2.0
+
+[orchestration.event_systems.orchestration.timing]
+claim_timeout_seconds = 300
+fallback_polling_interval_seconds = 5
+health_check_interval_seconds = 30
+processing_timeout_seconds = 60
+visibility_timeout_seconds = 30
+
+# task_readiness
+[orchestration.event_systems.task_readiness]
+deployment_mode = "Hybrid"
+system_id = "task-readiness-event-system"
+
+[orchestration.event_systems.task_readiness.health]
+enabled = true
+error_rate_threshold_per_minute = 20
+max_consecutive_errors = 10
+performance_monitoring_enabled = true
+
+[orchestration.event_systems.task_readiness.processing]
+batch_size = 50
+max_concurrent_operations = 100
+max_retries = 3
+
+[orchestration.event_systems.task_readiness.processing.backoff]
+initial_delay_ms = 100
+jitter_percent = 0.1
+max_delay_ms = 10000
+multiplier = 2.0
+
+[orchestration.event_systems.task_readiness.timing]
+claim_timeout_seconds = 300
+fallback_polling_interval_seconds = 5
+health_check_interval_seconds = 30
+processing_timeout_seconds = 60
+visibility_timeout_seconds = 30
+
+# ─────────────────────────────────────────────────────────────
+# grpc
+# ─────────────────────────────────────────────────────────────
+[orchestration.grpc]
+# Socket address for the gRPC server
+# Type: String | Range: host:port
+bind_address = "${TASKER_ORCHESTRATION_GRPC_BIND_ADDRESS:-0.0.0.0:9190}"
+# Enable the gRPC health checking service (grpc.health.v1)
+# Type: bool | Range: true/false
+enable_health_service = true
+# Enable gRPC server reflection for service discovery
+# Type: bool | Range: true/false
+enable_reflection = true
+# Enable the gRPC API server alongside the REST API
+# Type: bool | Range: true/false
+enabled = true
+keepalive_interval_seconds = 30
+keepalive_timeout_seconds = 20
+max_concurrent_streams = 200
+max_frame_size = 16384
+# Enable TLS encryption for gRPC connections
+# Type: bool | Range: true/false
+tls_enabled = false
+
+
+# ─────────────────────────────────────────────────────────────
+# mpsc_channels
+# ─────────────────────────────────────────────────────────────
+
+
+# command_processor
+[orchestration.mpsc_channels.command_processor]
+command_buffer_size = 5000
+
+# event_listeners
+[orchestration.mpsc_channels.event_listeners]
+pgmq_event_buffer_size = 50000
+
+# event_systems
+[orchestration.mpsc_channels.event_systems]
+event_channel_buffer_size = 10000
+
+# ─────────────────────────────────────────────────────────────
+# web
+# ─────────────────────────────────────────────────────────────
+[orchestration.web]
+# Socket address for the REST API server
+# Type: String | Range: host:port
+bind_address = "${TASKER_WEB_BIND_ADDRESS:-0.0.0.0:8080}"
+# Enable the REST API server for the orchestration service
+# Type: bool | Range: true/false
+enabled = true
+# Maximum time in milliseconds for an HTTP request to complete before timeout
+# Type: u32 | Range: 100-300000
+request_timeout_ms = 30000
+
+
+# auth
+[orchestration.web.auth]
+api_key = ""
+# HTTP header name for API key authentication
+# Type: String | Range: valid HTTP header name
+api_key_header = "X-API-Key"
+# Enable authentication for the REST API
+# Type: bool | Range: true/false
+enabled = false
+jwt_audience = "tasker-api"
+# Expected 'iss' claim in JWT tokens
+# Type: String | Range: non-empty string
+jwt_issuer = "tasker-core"
+jwt_private_key = ""
+jwt_public_key = "${TASKER_JWT_PUBLIC_KEY:-}"
+jwt_public_key_path = "${TASKER_JWT_PUBLIC_KEY_PATH:-}"
+jwt_token_expiry_hours = 24
+
+# database_pools
+[orchestration.web.database_pools]
+max_total_connections_hint = 50
+web_api_connection_timeout_seconds = 30
+web_api_idle_timeout_seconds = 600
+web_api_max_connections = 30
+web_api_pool_size = 20
+
+# resilience
+[orchestration.web.resilience]
+circuit_breaker_enabled = true
+# Tasker Configuration Reference — worker
+# Environment: development
+#
+# This is an annotated configuration file showing all available parameters
+# with their default values and documentation.
+#
+# Generate a deployable config: tasker-cli config generate
+# Look up a parameter:         tasker-cli docs explain -p <path>
+
+
+# ─────────────────────────────────────────────────────────────
+# worker
+# ─────────────────────────────────────────────────────────────
+[worker]
+# Unique identifier for this worker instance
+# Type: String | Range: non-empty string
+worker_id = "worker-default-001"
+# Worker type classification for routing and reporting
+# Type: String | Range: non-empty string
+worker_type = "general"
+
+
+# ─────────────────────────────────────────────────────────────
+# circuit_breakers
+# ─────────────────────────────────────────────────────────────
+
+
+# ffi_completion_send
+[worker.circuit_breakers.ffi_completion_send]
+failure_threshold = 5
+recovery_timeout_seconds = 5
+# Threshold in milliseconds above which FFI completion channel sends are logged as slow
+# Type: u32 | Range: 10-10000
+slow_send_threshold_ms = 100
+success_threshold = 2
+
+# ─────────────────────────────────────────────────────────────
+# event_systems
+# ─────────────────────────────────────────────────────────────
+
+
+# worker
+[worker.event_systems.worker]
+# Event delivery mode: 'Hybrid' (LISTEN/NOTIFY + polling fallback), 'EventDrivenOnly', or 'PollingOnly'
+# Type: DeploymentMode | Range: Hybrid | EventDrivenOnly | PollingOnly
+deployment_mode = "Hybrid"
+# Unique identifier for the worker event system instance
+# Type: String | Range: non-empty string
+system_id = "worker-event-system"
+
+[worker.event_systems.worker.health]
+enabled = true
+error_rate_threshold_per_minute = 20
+max_consecutive_errors = 10
+performance_monitoring_enabled = true
+
+[worker.event_systems.worker.metadata]
+
+[worker.event_systems.worker.metadata.fallback_poller]
+age_threshold_seconds = 5
+batch_size = 20
+enabled = true
+max_age_hours = 24
+polling_interval_ms = 1000
+supported_namespaces = []
+visibility_timeout_seconds = 30
+
+[worker.event_systems.worker.metadata.in_process_events]
+deduplication_cache_size = 10000
+ffi_integration_enabled = true
+
+[worker.event_systems.worker.metadata.listener]
+batch_processing = true
+connection_timeout_seconds = 30
+event_timeout_seconds = 60
+max_retry_attempts = 5
+retry_interval_seconds = 5
+
+[worker.event_systems.worker.metadata.resource_limits]
+max_cpu_percent = 80.0
+max_database_connections = 100
+max_memory_mb = 4096
+max_queue_connections = 50
+
+[worker.event_systems.worker.processing]
+batch_size = 20
+max_concurrent_operations = 100
+max_retries = 3
+
+[worker.event_systems.worker.processing.backoff]
+initial_delay_ms = 100
+jitter_percent = 0.1
+max_delay_ms = 10000
+multiplier = 2.0
+
+[worker.event_systems.worker.timing]
+claim_timeout_seconds = 300
+fallback_polling_interval_seconds = 2
+health_check_interval_seconds = 30
+processing_timeout_seconds = 60
+visibility_timeout_seconds = 30
+
+# ─────────────────────────────────────────────────────────────
+# grpc
+# ─────────────────────────────────────────────────────────────
+[worker.grpc]
+# Socket address for the worker gRPC server
+# Type: String | Range: host:port
+bind_address = "${TASKER_WORKER_GRPC_BIND_ADDRESS:-0.0.0.0:9191}"
+enable_health_service = true
+enable_reflection = true
+# Enable the gRPC API server for the worker service
+# Type: bool | Range: true/false
+enabled = true
+keepalive_interval_seconds = 30
+keepalive_timeout_seconds = 20
+# Maximum number of concurrent gRPC streams per connection
+# Type: u32 | Range: 1-10000
+max_concurrent_streams = 1000
+max_frame_size = 16384
+tls_enabled = false
+
+
+# ─────────────────────────────────────────────────────────────
+# health_monitoring
+# ─────────────────────────────────────────────────────────────
+[worker.health_monitoring]
+# Error rate threshold (0.0-1.0) above which the worker reports as unhealthy
+# Type: f64 | Range: 0.0-1.0
+error_rate_threshold = 0.05
+# Interval in seconds between worker health self-checks
+# Type: u32 | Range: 1-3600
+health_check_interval_seconds = 30
+performance_monitoring_enabled = true
+
+
+# ─────────────────────────────────────────────────────────────
+# mpsc_channels
+# ─────────────────────────────────────────────────────────────
+
+
+# command_processor
+[worker.mpsc_channels.command_processor]
+command_buffer_size = 2000
+
+# domain_events
+[worker.mpsc_channels.domain_events]
+command_buffer_size = 1000
+log_dropped_events = true
+shutdown_drain_timeout_ms = 5000
+
+# event_listeners
+[worker.mpsc_channels.event_listeners]
+pgmq_event_buffer_size = 10000
+
+# event_subscribers
+[worker.mpsc_channels.event_subscribers]
+completion_buffer_size = 1000
+result_buffer_size = 1000
+
+# event_systems
+[worker.mpsc_channels.event_systems]
+event_channel_buffer_size = 2000
+
+# ffi_dispatch
+[worker.mpsc_channels.ffi_dispatch]
+callback_timeout_ms = 5000
+completion_send_timeout_ms = 10000
+completion_timeout_ms = 30000
+dispatch_buffer_size = 1000
+starvation_warning_threshold_ms = 10000
+
+# handler_dispatch
+[worker.mpsc_channels.handler_dispatch]
+completion_buffer_size = 1000
+dispatch_buffer_size = 1000
+handler_timeout_ms = 30000
+max_concurrent_handlers = 10
+
+[worker.mpsc_channels.handler_dispatch.load_shedding]
+capacity_threshold_percent = 80.0
+enabled = true
+warning_threshold_percent = 70.0
+
+# in_process_events
+[worker.mpsc_channels.in_process_events]
+broadcast_buffer_size = 2000
+dispatch_timeout_ms = 5000
+log_subscriber_errors = true
+
+# ─────────────────────────────────────────────────────────────
+# orchestration_client
+# ─────────────────────────────────────────────────────────────
+[worker.orchestration_client]
+# Base URL of the orchestration REST API that this worker reports to
+# Type: String | Range: valid HTTP(S) URL
+base_url = "http://localhost:8080"
+# Maximum retry attempts for failed orchestration API calls
+# Type: u32 | Range: 0-10
+max_retries = 3
+# HTTP request timeout in milliseconds for orchestration API calls
+# Type: u32 | Range: 100-300000
+timeout_ms = 30000
+
+
+# ─────────────────────────────────────────────────────────────
+# step_processing
+# ─────────────────────────────────────────────────────────────
+[worker.step_processing]
+# Maximum time in seconds a step claim remains valid before expiring
+# Type: u32 | Range: 1-3600
+claim_timeout_seconds = 300
+# Maximum number of steps this worker processes simultaneously
+# Type: u32 | Range: 1-100000
+max_concurrent_steps = 50
+# Maximum number of retry attempts for a failed step at the worker level
+# Type: u32 | Range: 0-100
+max_retries = 3
+
+
+# ─────────────────────────────────────────────────────────────
+# web
+# ─────────────────────────────────────────────────────────────
+[worker.web]
+# Socket address for the worker REST API server
+# Type: String | Range: host:port
+bind_address = "${TASKER_WEB_BIND_ADDRESS:-0.0.0.0:8081}"
+# Enable the REST API server for the worker service
+# Type: bool | Range: true/false
+enabled = true
+request_timeout_ms = 30000
+
+
+# auth
+[worker.web.auth]
+api_key = ""
+api_key_header = "X-API-Key"
+# Enable authentication for the worker REST API
+# Type: bool | Range: true/false
+enabled = false
+jwt_audience = "worker-api"
+jwt_issuer = "tasker-worker"
+jwt_private_key = ""
+jwt_public_key = "${TASKER_JWT_PUBLIC_KEY:-}"
+jwt_public_key_path = "${TASKER_JWT_PUBLIC_KEY_PATH:-}"
+jwt_token_expiry_hours = 24
+
+# database_pools
+[worker.web.database_pools]
+max_total_connections_hint = 25
+web_api_connection_timeout_seconds = 30
+web_api_idle_timeout_seconds = 600
+web_api_max_connections = 15
+web_api_pool_size = 10
+
+# resilience
+[worker.web.resilience]
+circuit_breaker_enabled = true

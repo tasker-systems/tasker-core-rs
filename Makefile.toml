@@ -93,6 +93,11 @@ echo "  cargo make build-profiling      (bp)   Build with profiling profile"
 echo "  cargo make run-samply-orchestration (rso)  Run orchestration under samply"
 echo "  cargo make run-samply-worker-rust (rswr)   Run Rust worker under samply"
 echo ""
+echo "Documentation (TAS-175):"
+echo "  cargo make docs-generate   (dg)  Generate config docs"
+echo "  cargo make docs-coverage   (dc)  Show coverage stats"
+echo "  cargo make docs-check            Verify docs freshness (CI)"
+echo ""
 echo "Run 'cargo make --list-all-steps' for all tasks"
 '''
 
@@ -1923,3 +1928,113 @@ if [ $DIRTY -eq 1 ]; then
 fi
 echo "All generated schemas are up-to-date."
 '''
+
+# =============================================================================
+# TAS-175: Documentation Generation Tasks
+# =============================================================================
+# Generate configuration documentation from _docs metadata in base TOML files.
+# Generated docs are committed and CI checks they're up-to-date.
+#
+# Usage:
+#   cargo make docs-generate    (dg)  Generate all configuration docs
+#   cargo make docs-coverage    (dc)  Show documentation coverage stats
+#   cargo make docs-check             Verify generated docs are up-to-date (CI)
+#
+# No services or database required — these tasks only read base TOML files.
+
+[tasks.docs-generate]
+description = "Generate all configuration documentation into docs/generated/"
+script = '''
+#!/bin/bash
+set -euo pipefail
+
+CLI="cargo run --all-features --package tasker-client --bin tasker-cli --"
+OUTDIR="docs/generated"
+
+mkdir -p "$OUTDIR"
+
+echo "Generating configuration documentation..."
+
+echo "  config-reference-complete.md"
+$CLI docs reference --context all --output "$OUTDIR/config-reference-complete.md"
+
+echo "  config-reference-common.md"
+$CLI docs reference --context common --output "$OUTDIR/config-reference-common.md"
+
+echo "  config-reference-orchestration.md"
+$CLI docs reference --context orchestration --output "$OUTDIR/config-reference-orchestration.md"
+
+echo "  config-reference-worker.md"
+$CLI docs reference --context worker --output "$OUTDIR/config-reference-worker.md"
+
+echo "  annotated-production.toml"
+$CLI docs annotated --context complete --environment production --output "$OUTDIR/annotated-production.toml"
+
+echo "  annotated-development.toml"
+$CLI docs annotated --context complete --environment development --output "$OUTDIR/annotated-development.toml"
+
+echo "  index.md"
+$CLI docs index --output "$OUTDIR/index.md"
+
+echo ""
+echo "Generated documentation in $OUTDIR/:"
+ls -1 "$OUTDIR/"
+echo ""
+$CLI docs coverage
+'''
+
+[tasks.docs-coverage]
+description = "Show configuration documentation coverage statistics"
+command = "cargo"
+args = ["run", "--all-features", "--package", "tasker-client", "--bin", "tasker-cli",
+        "--", "docs", "coverage"]
+
+[tasks.docs-check]
+description = "Verify generated docs are up-to-date (for CI)"
+script = '''
+#!/bin/bash
+set -euo pipefail
+
+CLI="cargo run --all-features --package tasker-client --bin tasker-cli --"
+OUTDIR="docs/generated"
+TMPDIR=$(mktemp -d)
+trap "rm -rf $TMPDIR" EXIT
+
+mkdir -p "$TMPDIR"
+
+echo "Generating fresh documentation..."
+$CLI docs reference --context all --output "$TMPDIR/config-reference-complete.md"
+$CLI docs reference --context common --output "$TMPDIR/config-reference-common.md"
+$CLI docs reference --context orchestration --output "$TMPDIR/config-reference-orchestration.md"
+$CLI docs reference --context worker --output "$TMPDIR/config-reference-worker.md"
+$CLI docs annotated --context complete --environment production --output "$TMPDIR/annotated-production.toml"
+$CLI docs annotated --context complete --environment development --output "$TMPDIR/annotated-development.toml"
+$CLI docs index --output "$TMPDIR/index.md"
+
+DIRTY=0
+for f in config-reference-complete.md config-reference-common.md config-reference-orchestration.md config-reference-worker.md annotated-production.toml annotated-development.toml index.md; do
+  if [ ! -f "$OUTDIR/$f" ]; then
+    echo "MISSING: $OUTDIR/$f — run: cargo make docs-generate"
+    DIRTY=1
+  elif ! diff -q "$OUTDIR/$f" "$TMPDIR/$f" > /dev/null 2>&1; then
+    echo "STALE: $OUTDIR/$f — run: cargo make docs-generate"
+    DIRTY=1
+  fi
+done
+
+if [ $DIRTY -eq 1 ]; then
+  echo ""
+  echo "Generated docs are out of date. Run: cargo make docs-generate"
+  exit 1
+fi
+echo "All generated documentation is up-to-date."
+'''
+
+# Documentation shortcuts
+[tasks.dg]
+alias = "docs-generate"
+description = "Shortcut for docs-generate"
+
+[tasks.dc]
+alias = "docs-coverage"
+description = "Shortcut for docs-coverage"
