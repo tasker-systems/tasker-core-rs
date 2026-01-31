@@ -54,10 +54,7 @@ impl DocContextBuilder {
     /// # Arguments
     /// * `base_dir` - Path to base config directory (e.g., "config/tasker/base")
     pub fn new(base_dir: PathBuf) -> ConfigResult<Self> {
-        info!(
-            "Building documentation context from {}",
-            base_dir.display()
-        );
+        info!("Building documentation context from {}", base_dir.display());
 
         // Load documentation from _docs sections
         let documentation = ConfigDocumentation::load(base_dir.clone())?;
@@ -199,13 +196,7 @@ impl DocContextBuilder {
     }
 
     /// Get documentation coverage statistics.
-    pub fn coverage_stats(
-        &self,
-    ) -> (
-        usize,
-        usize,
-        Vec<(ConfigContext, usize, usize)>,
-    ) {
+    pub fn coverage_stats(&self) -> (usize, usize, Vec<(ConfigContext, usize, usize)>) {
         let mut total = 0;
         let mut documented = 0;
         let mut per_context = Vec::new();
@@ -236,7 +227,10 @@ impl DocContextBuilder {
     /// Load a base TOML file and extract the context sub-table.
     ///
     /// For `common.toml`, this extracts the value under the "common" key.
-    fn load_context_value(base_dir: &std::path::Path, context_name: &str) -> ConfigResult<toml::Value> {
+    fn load_context_value(
+        base_dir: &std::path::Path,
+        context_name: &str,
+    ) -> ConfigResult<toml::Value> {
         let file_path = base_dir.join(format!("{}.toml", context_name));
         if !file_path.exists() {
             debug!(
@@ -246,13 +240,11 @@ impl DocContextBuilder {
             return Ok(toml::Value::Table(toml::map::Map::new()));
         }
 
-        let content = std::fs::read_to_string(&file_path).map_err(|e| {
-            ConfigurationError::file_read_error(file_path.to_string_lossy(), e)
-        })?;
+        let content = std::fs::read_to_string(&file_path)
+            .map_err(|e| ConfigurationError::file_read_error(file_path.to_string_lossy(), e))?;
 
-        let root: toml::Value = toml::from_str(&content).map_err(|e| {
-            ConfigurationError::invalid_toml(file_path.to_string_lossy(), e)
-        })?;
+        let root: toml::Value = toml::from_str(&content)
+            .map_err(|e| ConfigurationError::invalid_toml(file_path.to_string_lossy(), e))?;
 
         // Extract the context sub-table (e.g., "common" from common.toml)
         match root {
@@ -581,7 +573,9 @@ worker_type = "general"
         let (_temp, base_dir) = create_test_base_dir();
         let builder = DocContextBuilder::new(base_dir).unwrap();
 
-        assert!(builder.build_parameter("common.nonexistent.param").is_none());
+        assert!(builder
+            .build_parameter("common.nonexistent.param")
+            .is_none());
     }
 
     #[test]
@@ -596,9 +590,7 @@ worker_type = "general"
 
         // Root section should contain the mode parameter
         let all_params = builder.all_parameters();
-        let mode_param = all_params
-            .iter()
-            .find(|p| p.path == "orchestration.mode");
+        let mode_param = all_params.iter().find(|p| p.path == "orchestration.mode");
         assert!(mode_param.is_some());
         assert!(mode_param.unwrap().is_documented);
     }
@@ -642,10 +634,7 @@ worker_type = "general"
         assert_eq!(toml_type_name(&toml::Value::Integer(42)), "integer");
         assert_eq!(toml_type_name(&toml::Value::Float(3.14)), "float");
         assert_eq!(toml_type_name(&toml::Value::Boolean(true)), "bool");
-        assert_eq!(
-            toml_type_name(&toml::Value::Array(vec![])),
-            "array"
-        );
+        assert_eq!(toml_type_name(&toml::Value::Array(vec![])), "array");
     }
 
     #[test]

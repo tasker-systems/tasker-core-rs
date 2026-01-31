@@ -380,8 +380,7 @@ pub async fn handle_config_command(
 
                 match resolved {
                     Some(param) => {
-                        let rendered =
-                            render_parameter_explain(&param, environment.as_deref())?;
+                        let rendered = render_parameter_explain(&param, environment.as_deref())?;
                         print!("{}", rendered);
                     }
                     None => {
@@ -440,7 +439,10 @@ pub async fn handle_config_command(
 
                 println!("Configuration Documentation Overview");
                 println!("====================================\n");
-                println!("  Total: {}/{} parameters documented ({}%)\n", documented, total, percent);
+                println!(
+                    "  Total: {}/{} parameters documented ({}%)\n",
+                    documented, total, percent
+                );
 
                 for (ctx, ctx_total, ctx_documented) in &per_context {
                     let ctx_percent = if *ctx_total > 0 {
@@ -459,10 +461,18 @@ pub async fn handle_config_command(
 
                 println!();
                 println!("Commands:");
-                println!("  tasker-cli config explain --parameter <path>   Explain a specific parameter");
-                println!("  tasker-cli config explain --context <name>     List parameters in a context");
-                println!("  tasker-cli docs reference                      Full documentation reference");
-                println!("  tasker-cli docs coverage                       Detailed coverage statistics");
+                println!(
+                    "  tasker-cli config explain --parameter <path>   Explain a specific parameter"
+                );
+                println!(
+                    "  tasker-cli config explain --context <name>     List parameters in a context"
+                );
+                println!(
+                    "  tasker-cli docs reference                      Full documentation reference"
+                );
+                println!(
+                    "  tasker-cli docs coverage                       Detailed coverage statistics"
+                );
             }
         }
         ConfigCommands::AnalyzeUsage {
@@ -1002,7 +1012,10 @@ pub async fn handle_config_command(
 }
 
 /// Print a section listing with indentation for nested subsections.
-fn print_section_listing(section: &tasker_shared::config::doc_context::SectionContext, depth: usize) {
+fn print_section_listing(
+    section: &tasker_shared::config::doc_context::SectionContext,
+    depth: usize,
+) {
     let indent = "  ".repeat(depth);
     let total = section.total_parameters();
     let documented = section.documented_parameters();

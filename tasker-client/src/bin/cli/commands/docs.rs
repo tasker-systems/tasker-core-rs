@@ -24,25 +24,19 @@ pub async fn handle_docs_command(cmd: DocsCommands) -> ClientResult<()> {
             format: _format,
             output,
             base_dir,
-        } => {
-            handle_reference(&context, output.as_deref(), &base_dir).await
-        }
+        } => handle_reference(&context, output.as_deref(), &base_dir).await,
         DocsCommands::Annotated {
             context,
             environment,
             output,
             base_dir,
-        } => {
-            handle_annotated(&context, &environment, output.as_deref(), &base_dir).await
-        }
+        } => handle_annotated(&context, &environment, output.as_deref(), &base_dir).await,
         DocsCommands::Section {
             path,
             environment,
             output,
             base_dir,
-        } => {
-            handle_section(&path, environment.as_deref(), output.as_deref(), &base_dir).await
-        }
+        } => handle_section(&path, environment.as_deref(), output.as_deref(), &base_dir).await,
         DocsCommands::Coverage { base_dir } => handle_coverage(&base_dir).await,
         DocsCommands::Explain {
             parameter,
@@ -55,11 +49,7 @@ pub async fn handle_docs_command(cmd: DocsCommands) -> ClientResult<()> {
     }
 }
 
-async fn handle_reference(
-    context: &str,
-    output: Option<&str>,
-    base_dir: &str,
-) -> ClientResult<()> {
+async fn handle_reference(context: &str, output: Option<&str>, base_dir: &str) -> ClientResult<()> {
     let builder = create_builder(base_dir)?;
     let timestamp = chrono::Utc::now().to_rfc3339();
 
@@ -74,13 +64,8 @@ async fn handle_reference(
             let total: usize = sections.iter().map(|s| s.total_parameters()).sum();
             let documented: usize = sections.iter().map(|s| s.documented_parameters()).sum();
 
-            let part = render_reference(
-                &ctx.to_string(),
-                &sections,
-                total,
-                documented,
-                &timestamp,
-            )?;
+            let part =
+                render_reference(&ctx.to_string(), &sections, total, documented, &timestamp)?;
             parts.push(part);
         }
         parts.join("\n---\n\n")
@@ -209,9 +194,7 @@ async fn handle_coverage(base_dir: &str) -> ClientResult<()> {
     }
 
     println!();
-    println!(
-        "Run `tasker-cli docs reference` to generate full documentation."
-    );
+    println!("Run `tasker-cli docs reference` to generate full documentation.");
 
     Ok(())
 }
@@ -466,10 +449,7 @@ pub(crate) fn write_output(content: &str, output: Option<&str>) -> ClientResult<
             })?;
         }
         std::fs::write(path, content).map_err(|e| {
-            tasker_client::ClientError::ConfigError(format!(
-                "Failed to write to '{}': {}",
-                path, e
-            ))
+            tasker_client::ClientError::ConfigError(format!("Failed to write to '{}': {}", path, e))
         })?;
         println!("Written to: {}", path);
     } else {

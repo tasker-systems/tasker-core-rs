@@ -244,10 +244,7 @@ mod tests {
 
         let output = template.render().expect("Template should render");
         assert!(output.contains("# pool"), "Missing section title");
-        assert!(
-            output.contains("**Context:** common"),
-            "Missing context"
-        );
+        assert!(output.contains("**Context:** common"), "Missing context");
         assert!(
             output.contains("**Environment:** production"),
             "Missing environment"
