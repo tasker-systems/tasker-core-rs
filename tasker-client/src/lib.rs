@@ -130,6 +130,9 @@ pub mod config;
 pub mod error;
 pub mod transport;
 
+#[cfg(feature = "docs-gen")]
+pub mod docs;
+
 #[cfg(feature = "grpc")]
 pub mod grpc_clients;
 

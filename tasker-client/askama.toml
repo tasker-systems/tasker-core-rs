@@ -1,0 +1,9 @@
+# TAS-175: Askama template engine configuration
+# Templates are resolved relative to this crate's root directory
+[general]
+dirs = ["templates"]
+
+# Register .toml as a text-escaped extension (no HTML escaping)
+[[escaper]]
+path = "::askama::filters::Text"
+extensions = ["toml"]

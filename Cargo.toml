@@ -38,6 +38,8 @@ members = [
 
 [workspace.dependencies]
 anyhow = "1.0"
+# Compile-time template engine (TAS-175: config documentation generation)
+askama = "0.15"
 async-trait = "0.1"
 # Web framework and HTTP server (TAS-28)
 axum = "0.8"

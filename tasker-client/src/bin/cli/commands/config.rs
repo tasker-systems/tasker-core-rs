@@ -359,182 +359,120 @@ pub async fn handle_config_command(
             context,
             environment,
         } => {
-            use tasker_shared::config::ConfigDocumentation;
+            use super::docs::{create_builder, render_parameter_explain};
+            use tasker_shared::config::doc_context::ConfigContext;
 
-            // Load documentation from base configuration directory
-            let base_dir = std::path::PathBuf::from("config/tasker/base");
-
-            if !base_dir.exists() {
-                eprintln!(
-                    "❌ Configuration base directory not found: {}",
-                    base_dir.display()
-                );
-                eprintln!("   Expected directory structure:");
-                eprintln!("   config/tasker/base/");
-                eprintln!("     ├── common.toml");
-                eprintln!("     ├── orchestration.toml");
-                eprintln!("     └── worker.toml");
-                return Err(tasker_client::ClientError::ConfigError(
-                    "Configuration base directory not found".to_string(),
-                ));
-            }
-
-            let docs = ConfigDocumentation::load(base_dir).map_err(|e| {
-                tasker_client::ClientError::ConfigError(format!(
-                    "Failed to load configuration documentation: {}",
-                    e
-                ))
-            })?;
+            let base_dir = "config/tasker/base";
+            let builder = create_builder(base_dir)?;
 
             // Handle specific parameter lookup
             if let Some(param_path) = parameter {
-                if let Some(param_docs) = docs.lookup(&param_path) {
-                    println!("\n📖 Configuration Parameter: {}\n", param_docs.path);
-                    println!("Description:");
-                    println!("  {}\n", param_docs.description);
+                // Auto-resolve paths: try as-is, then with each context prefix.
+                // This maintains backwards compatibility with `config explain -p database.pool.max_connections`
+                // while also accepting `config explain -p common.database.pool.max_connections`.
+                let resolved = builder.build_parameter(&param_path).or_else(|| {
+                    ["common", "orchestration", "worker"]
+                        .iter()
+                        .find_map(|prefix| {
+                            builder.build_parameter(&format!("{}.{}", prefix, param_path))
+                        })
+                });
 
-                    println!("Type: {}", param_docs.param_type);
-                    println!("Valid Range: {}", param_docs.valid_range);
-
-                    if !param_docs.default.is_empty() {
-                        println!("Default: {}\n", param_docs.default);
-                    } else {
-                        println!();
+                match resolved {
+                    Some(param) => {
+                        let rendered = render_parameter_explain(&param, environment.as_deref())?;
+                        print!("{}", rendered);
                     }
-
-                    println!("System Impact:");
-                    println!("  {}\n", param_docs.system_impact);
-
-                    if !param_docs.example.is_empty() {
-                        println!("Example Usage:");
-                        println!("{}\n", param_docs.example);
+                    None => {
+                        eprintln!("Parameter not found: {}", param_path);
+                        eprintln!();
+                        eprintln!("Hint: Use dotted path with or without context prefix, e.g.:");
+                        eprintln!("  common.database.pool.max_connections");
+                        eprintln!("  database.pool.max_connections");
+                        eprintln!("  orchestration.dlq.enabled");
+                        return Err(tasker_client::ClientError::InvalidInput(format!(
+                            "Parameter '{}' not found",
+                            param_path
+                        )));
                     }
-
-                    if !param_docs.related.is_empty() {
-                        println!("Related Parameters:");
-                        for related in &param_docs.related {
-                            println!("  • {}", related);
-                        }
-                        println!();
-                    }
-
-                    // Show environment-specific recommendations
-                    if !param_docs.recommendations.is_empty() {
-                        println!("Environment-Specific Recommendations:");
-
-                        // If environment specified, show only that one
-                        if let Some(env) = &environment {
-                            if let Some(rec) = param_docs.recommendations.get(env) {
-                                println!("  {} environment:", env);
-                                println!("    Value: {}", rec.value);
-                                println!("    Rationale: {}", rec.rationale);
-                            } else {
-                                println!("  ⚠️  No recommendation for {} environment", env);
-                            }
-                        } else {
-                            // Show all recommendations
-                            for (env_name, rec) in &param_docs.recommendations {
-                                println!("  {} environment:", env_name);
-                                println!("    Value: {}", rec.value);
-                                println!("    Rationale: {}", rec.rationale);
-                            }
-                        }
-                        println!();
-                    }
-
-                    if !param_docs.example.is_empty() {
-                        println!("Example Usage:");
-                        println!("{}", param_docs.example);
-                    }
-                } else {
-                    eprintln!("❌ No documentation found for parameter: {}", param_path);
-                    eprintln!("\n💡 Tip: Use 'tasker-cli config explain --context <context>' to list available parameters");
-                    eprintln!("   Valid contexts: common, orchestration, worker");
-                    return Err(tasker_client::ClientError::InvalidInput(format!(
-                        "Parameter '{}' not documented",
-                        param_path
-                    )));
                 }
             }
             // Handle context listing
-            else if let Some(ctx) = context {
-                let context_params = docs.list_for_context(&ctx);
+            else if let Some(ctx_name) = context {
+                let ctx = ConfigContext::from_str_loose(&ctx_name).ok_or_else(|| {
+                    tasker_client::ClientError::InvalidInput(format!(
+                        "Unknown context '{}'. Valid contexts: common, orchestration, worker",
+                        ctx_name
+                    ))
+                })?;
 
-                if context_params.is_empty() {
-                    println!("\n⚠️  No documented parameters found for context: {}", ctx);
-                    println!("\n💡 Valid contexts: common, orchestration, worker");
-                } else {
-                    println!("\n📚 Configuration Parameters for {} Context\n", ctx);
-                    println!("Found {} documented parameters:\n", context_params.len());
+                let sections = builder.build_sections(ctx);
+                let total: usize = sections.iter().map(|s| s.total_parameters()).sum();
+                let documented: usize = sections.iter().map(|s| s.documented_parameters()).sum();
 
-                    for param in context_params {
-                        println!("• {}", param.path);
-                        println!("  {}", param.description);
-                        println!();
-                    }
+                println!(
+                    "Configuration Parameters for {} ({}/{} documented)\n",
+                    ctx_name, documented, total
+                );
 
-                    println!("💡 Tip: Use 'tasker-cli config explain --parameter <path>' for detailed information");
-                    println!("   Example: tasker-cli config explain --parameter database.pool.max_connections");
+                for section in &sections {
+                    print_section_listing(section, 0);
                 }
+
+                println!();
+                println!(
+                    "Use `tasker-cli docs explain -p <path>` for detailed parameter information."
+                );
+                println!(
+                    "Use `tasker-cli docs reference --context {}` for full documentation.",
+                    ctx_name
+                );
             }
-            // List all documented parameters
+            // List all parameters — show coverage summary
             else {
-                let all_params: Vec<_> = docs.all_parameters().collect();
+                let (total, documented, per_context) = builder.coverage_stats();
+                let percent = if total > 0 {
+                    (documented * 100) / total
+                } else {
+                    0
+                };
 
-                println!("\n📚 All Documented Configuration Parameters\n");
-                println!("Total: {} parameters\n", all_params.len());
+                println!("Configuration Documentation Overview");
+                println!("====================================\n");
+                println!(
+                    "  Total: {}/{} parameters documented ({}%)\n",
+                    documented, total, percent
+                );
 
-                // Group by prefix for better readability
-                let mut common_params = Vec::new();
-                let mut orch_params = Vec::new();
-                let mut worker_params = Vec::new();
-
-                for param in all_params {
-                    if param.path.starts_with("database")
-                        || param.path.starts_with("queues")
-                        || param.path.starts_with("circuit_breakers")
-                        || param.path.starts_with("shared_channels")
-                    {
-                        common_params.push(param);
-                    } else if param.path.starts_with("orchestration")
-                        || param.path.starts_with("backoff")
-                        || param.path.starts_with("task_readiness")
-                    {
-                        orch_params.push(param);
-                    } else if param.path.starts_with("worker") {
-                        worker_params.push(param);
-                    }
-                }
-
-                if !common_params.is_empty() {
-                    println!("Common Configuration ({} parameters):", common_params.len());
-                    for param in common_params {
-                        println!("  • {} - {}", param.path, param.description);
-                    }
-                    println!();
-                }
-
-                if !orch_params.is_empty() {
+                for (ctx, ctx_total, ctx_documented) in &per_context {
+                    let ctx_percent = if *ctx_total > 0 {
+                        (ctx_documented * 100) / ctx_total
+                    } else {
+                        0
+                    };
                     println!(
-                        "Orchestration Configuration ({} parameters):",
-                        orch_params.len()
+                        "  {:15} {}/{} ({}%)",
+                        format!("{}:", ctx),
+                        ctx_documented,
+                        ctx_total,
+                        ctx_percent
                     );
-                    for param in orch_params {
-                        println!("  • {} - {}", param.path, param.description);
-                    }
-                    println!();
                 }
 
-                if !worker_params.is_empty() {
-                    println!("Worker Configuration ({} parameters):", worker_params.len());
-                    for param in worker_params {
-                        println!("  • {} - {}", param.path, param.description);
-                    }
-                    println!();
-                }
-
-                println!("💡 Tip: Use --context <name> to filter by context (common, orchestration, worker)");
-                println!("   Or use --parameter <path> for detailed information about a specific parameter");
+                println!();
+                println!("Commands:");
+                println!(
+                    "  tasker-cli config explain --parameter <path>   Explain a specific parameter"
+                );
+                println!(
+                    "  tasker-cli config explain --context <name>     List parameters in a context"
+                );
+                println!(
+                    "  tasker-cli docs reference                      Full documentation reference"
+                );
+                println!(
+                    "  tasker-cli docs coverage                       Detailed coverage statistics"
+                );
             }
         }
         ConfigCommands::AnalyzeUsage {
@@ -1071,4 +1009,36 @@ pub async fn handle_config_command(
         }
     }
     Ok(())
+}
+
+/// Print a section listing with indentation for nested subsections.
+fn print_section_listing(
+    section: &tasker_shared::config::doc_context::SectionContext,
+    depth: usize,
+) {
+    let indent = "  ".repeat(depth);
+    let total = section.total_parameters();
+    let documented = section.documented_parameters();
+
+    if documented > 0 {
+        println!(
+            "{}  {} ({}) — {} params ({} documented)",
+            indent, section.name, section.path, total, documented
+        );
+    } else {
+        println!(
+            "{}  {} ({}) — {} params",
+            indent, section.name, section.path, total
+        );
+    }
+
+    for param in &section.parameters {
+        if param.is_documented {
+            println!("{}    • {} — {}", indent, param.name, param.description);
+        }
+    }
+
+    for sub in &section.subsections {
+        print_section_listing(sub, depth + 1);
+    }
 }

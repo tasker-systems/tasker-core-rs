@@ -10,8 +10,8 @@ use tasker_client::ClientConfig;
 use tracing::info;
 
 use cli::{
-    handle_auth_command, handle_config_command, handle_dlq_command, handle_system_command,
-    handle_task_command, handle_worker_command,
+    handle_auth_command, handle_config_command, handle_dlq_command, handle_docs_command,
+    handle_system_command, handle_task_command, handle_worker_command,
 };
 
 #[derive(Parser, Debug)]
@@ -70,6 +70,10 @@ pub enum Commands {
     /// Authentication and security operations (TAS-150)
     #[command(subcommand)]
     Auth(AuthCommands),
+
+    /// Configuration documentation generation (TAS-175)
+    #[command(subcommand)]
+    Docs(DocsCommands),
 }
 
 #[derive(Debug, Subcommand)]
@@ -416,6 +420,100 @@ pub enum AuthCommands {
     },
 }
 
+/// TAS-175: Documentation generation commands
+#[derive(Debug, Subcommand)]
+pub enum DocsCommands {
+    /// Generate full configuration reference documentation
+    Reference {
+        /// Configuration context (common, orchestration, worker, all)
+        #[arg(short, long, default_value = "all")]
+        context: String,
+
+        /// Output format (markdown, toml, text)
+        #[arg(short, long, default_value = "markdown")]
+        format: String,
+
+        /// Write to file instead of stdout
+        #[arg(short, long)]
+        output: Option<String>,
+
+        /// Base config directory for _docs metadata
+        #[arg(long, default_value = "config/tasker/base")]
+        base_dir: String,
+    },
+
+    /// Generate annotated configuration example with documentation comments
+    Annotated {
+        /// Configuration context (common, orchestration, worker, all, complete)
+        #[arg(short, long, default_value = "complete")]
+        context: String,
+
+        /// Target environment for recommendations
+        #[arg(short, long, default_value = "production")]
+        environment: String,
+
+        /// Write to file instead of stdout
+        #[arg(short, long)]
+        output: Option<String>,
+
+        /// Base config directory for _docs metadata
+        #[arg(long, default_value = "config/tasker/base")]
+        base_dir: String,
+    },
+
+    /// Generate documentation for a specific section
+    Section {
+        /// Section path (e.g., "common.database.pool", "orchestration.dlq")
+        #[arg(short, long)]
+        path: String,
+
+        /// Target environment for recommendations
+        #[arg(short, long)]
+        environment: Option<String>,
+
+        /// Write to file instead of stdout
+        #[arg(short, long)]
+        output: Option<String>,
+
+        /// Base config directory for _docs metadata
+        #[arg(long, default_value = "config/tasker/base")]
+        base_dir: String,
+    },
+
+    /// Show documentation coverage statistics
+    Coverage {
+        /// Base config directory for _docs metadata
+        #[arg(long, default_value = "config/tasker/base")]
+        base_dir: String,
+    },
+
+    /// Explain a specific configuration parameter (template-rendered)
+    Explain {
+        /// Parameter path (e.g., "common.database.pool.max_connections")
+        #[arg(short, long)]
+        parameter: String,
+
+        /// Environment for filtering recommendations
+        #[arg(short, long)]
+        environment: Option<String>,
+
+        /// Base config directory for _docs metadata
+        #[arg(long, default_value = "config/tasker/base")]
+        base_dir: String,
+    },
+
+    /// Generate documentation index showing all contexts and coverage
+    Index {
+        /// Write to file instead of stdout
+        #[arg(short, long)]
+        output: Option<String>,
+
+        /// Base config directory for _docs metadata
+        #[arg(long, default_value = "config/tasker/base")]
+        base_dir: String,
+    },
+}
+
 #[derive(Debug, Subcommand)]
 pub enum DlqCommands {
     /// List DLQ entries
@@ -498,5 +596,6 @@ async fn main() -> tasker_client::ClientResult<()> {
         Commands::Config(config_cmd) => handle_config_command(config_cmd, &config).await,
         Commands::Dlq(dlq_cmd) => handle_dlq_command(dlq_cmd, &config).await,
         Commands::Auth(auth_cmd) => handle_auth_command(auth_cmd).await,
+        Commands::Docs(docs_cmd) => handle_docs_command(docs_cmd).await,
     }
 }

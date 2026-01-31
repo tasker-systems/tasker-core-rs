@@ -24,6 +24,8 @@
 
 pub mod circuit_breaker;
 pub mod config_loader;
+pub mod doc_context;
+pub mod doc_context_builder;
 pub mod documentation;
 pub mod error;
 pub mod event_systems;
@@ -42,6 +44,10 @@ pub use config_loader::{ConfigLoader, ConfigManager};
 // TAS-50: CLI configuration merger and documentation
 pub use documentation::{ConfigDocumentation, EnvironmentRecommendation, ParameterDocumentation};
 pub use merger::ConfigMerger;
+
+// TAS-175: Documentation context types and builder
+pub use doc_context::{ConfigContext, ParameterContext, RecommendationContext, SectionContext};
+pub use doc_context_builder::DocContextBuilder;
 
 // Re-export types and errors
 pub use circuit_breaker::{

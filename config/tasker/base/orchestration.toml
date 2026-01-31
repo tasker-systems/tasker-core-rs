@@ -5,9 +5,33 @@
 mode = "standalone"
 enable_performance_logging = true
 
+[orchestration._docs.mode]
+description = "Orchestration deployment mode"
+type = "String"
+valid_range = "standalone"
+system_impact = "Reserved for future multi-node orchestration; standalone is the only supported mode"
+
+[orchestration._docs.enable_performance_logging]
+description = "Enable detailed performance logging for orchestration actors"
+type = "bool"
+valid_range = "true/false"
+system_impact = "Emits timing metrics for task processing, step enqueueing, and result evaluation; disable in production if log volume is a concern"
+
 [orchestration.event_systems.orchestration]
 system_id = "orchestration-event-system"
 deployment_mode = "Hybrid"
+
+[orchestration.event_systems.orchestration._docs.system_id]
+description = "Unique identifier for the orchestration event system instance"
+type = "String"
+valid_range = "non-empty string"
+system_impact = "Used in logging and metrics to distinguish this event system from others"
+
+[orchestration.event_systems.orchestration._docs.deployment_mode]
+description = "Event delivery mode: 'Hybrid' (LISTEN/NOTIFY + polling fallback), 'EventDrivenOnly', or 'PollingOnly'"
+type = "DeploymentMode"
+valid_range = "Hybrid | EventDrivenOnly | PollingOnly"
+system_impact = "Hybrid is recommended; EventDrivenOnly has lowest latency but no fallback; PollingOnly has highest latency but no LISTEN/NOTIFY dependency"
 
 [orchestration.event_systems.orchestration.timing]
 health_check_interval_seconds = 30
@@ -16,10 +40,58 @@ visibility_timeout_seconds = 30
 processing_timeout_seconds = 60
 claim_timeout_seconds = 300
 
+[orchestration.event_systems.orchestration.timing._docs.health_check_interval_seconds]
+description = "Interval in seconds between health check probes for the orchestration event system"
+type = "u32"
+valid_range = "1-3600"
+system_impact = "Controls how frequently the event system verifies its own connectivity and responsiveness"
+
+[orchestration.event_systems.orchestration.timing._docs.fallback_polling_interval_seconds]
+description = "Interval in seconds between fallback polling cycles when LISTEN/NOTIFY is unavailable"
+type = "u32"
+valid_range = "1-60"
+system_impact = "Only active in Hybrid mode when event-driven delivery fails; lower values reduce latency but increase DB load"
+
+[orchestration.event_systems.orchestration.timing._docs.visibility_timeout_seconds]
+description = "Time in seconds a dequeued message remains invisible to other consumers"
+type = "u32"
+valid_range = "1-3600"
+system_impact = "If processing is not completed within this window, the message becomes visible again for redelivery"
+
+[orchestration.event_systems.orchestration.timing._docs.processing_timeout_seconds]
+description = "Maximum time in seconds allowed for processing a single event"
+type = "u32"
+valid_range = "1-3600"
+system_impact = "Events exceeding this timeout are considered failed and may be retried"
+
+[orchestration.event_systems.orchestration.timing._docs.claim_timeout_seconds]
+description = "Maximum time in seconds an event claim remains valid"
+type = "u32"
+valid_range = "1-3600"
+system_impact = "Prevents abandoned claims from blocking event processing indefinitely"
+
 [orchestration.event_systems.orchestration.processing]
 max_concurrent_operations = 50
 batch_size = 20
 max_retries = 3
+
+[orchestration.event_systems.orchestration.processing._docs.max_concurrent_operations]
+description = "Maximum number of events processed concurrently by the orchestration event system"
+type = "u32"
+valid_range = "1-10000"
+system_impact = "Controls parallelism for task request, result, and finalization processing"
+
+[orchestration.event_systems.orchestration.processing._docs.batch_size]
+description = "Number of events dequeued in a single batch read"
+type = "u32"
+valid_range = "1-1000"
+system_impact = "Larger batches improve throughput but increase per-batch processing time"
+
+[orchestration.event_systems.orchestration.processing._docs.max_retries]
+description = "Maximum retry attempts for a failed event processing operation"
+type = "u32"
+valid_range = "0-100"
+system_impact = "Events exceeding this retry count are dropped or sent to the DLQ"
 
 [orchestration.event_systems.orchestration.processing.backoff]
 initial_delay_ms = 100
@@ -27,15 +99,75 @@ max_delay_ms = 10000
 multiplier = 2.0
 jitter_percent = 0.1
 
+[orchestration.event_systems.orchestration.processing.backoff._docs.initial_delay_ms]
+description = "Initial backoff delay in milliseconds after first event processing failure"
+type = "u64"
+valid_range = "10-60000"
+system_impact = "Starting point for exponential backoff; lower values retry faster but may overwhelm a struggling system"
+
+[orchestration.event_systems.orchestration.processing.backoff._docs.max_delay_ms]
+description = "Maximum backoff delay in milliseconds between event processing retries"
+type = "u64"
+valid_range = "100-300000"
+system_impact = "Caps exponential growth to prevent excessively long delays"
+
+[orchestration.event_systems.orchestration.processing.backoff._docs.multiplier]
+description = "Multiplier applied to the backoff delay after each consecutive failure"
+type = "f64"
+valid_range = "1.0-10.0"
+system_impact = "Controls how aggressively the delay grows; 2.0 doubles the delay each time"
+
+[orchestration.event_systems.orchestration.processing.backoff._docs.jitter_percent]
+description = "Maximum jitter as a fraction of the computed backoff delay"
+type = "f64"
+valid_range = "0.0-1.0"
+system_impact = "Randomizes retry timing to prevent thundering herd when multiple consumers retry simultaneously"
+
 [orchestration.event_systems.orchestration.health]
 enabled = true
 performance_monitoring_enabled = true
 max_consecutive_errors = 10
 error_rate_threshold_per_minute = 20
 
+[orchestration.event_systems.orchestration.health._docs.enabled]
+description = "Enable health monitoring for the orchestration event system"
+type = "bool"
+valid_range = "true/false"
+system_impact = "When false, no health checks or error tracking run for this event system"
+
+[orchestration.event_systems.orchestration.health._docs.performance_monitoring_enabled]
+description = "Enable detailed performance metrics collection for event processing"
+type = "bool"
+valid_range = "true/false"
+system_impact = "Tracks processing latency percentiles and throughput; adds minor overhead"
+
+[orchestration.event_systems.orchestration.health._docs.max_consecutive_errors]
+description = "Number of consecutive errors before the event system reports as unhealthy"
+type = "u32"
+valid_range = "1-1000"
+system_impact = "Triggers health status degradation after sustained failures; resets on any success"
+
+[orchestration.event_systems.orchestration.health._docs.error_rate_threshold_per_minute]
+description = "Error rate per minute above which the event system reports as unhealthy"
+type = "u32"
+valid_range = "1-10000"
+system_impact = "Rate-based health signal; complements max_consecutive_errors for burst error detection"
+
 [orchestration.event_systems.task_readiness]
 system_id = "task-readiness-event-system"
 deployment_mode = "Hybrid"
+
+[orchestration.event_systems.task_readiness._docs.system_id]
+description = "Unique identifier for the task readiness event system instance"
+type = "String"
+valid_range = "non-empty string"
+system_impact = "Used in logging and metrics to distinguish task readiness events from other event systems"
+
+[orchestration.event_systems.task_readiness._docs.deployment_mode]
+description = "Event delivery mode for task readiness: 'Hybrid', 'EventDrivenOnly', or 'PollingOnly'"
+type = "DeploymentMode"
+valid_range = "Hybrid | EventDrivenOnly | PollingOnly"
+system_impact = "Hybrid is recommended; task readiness events trigger step processing and benefit from low-latency delivery"
 
 [orchestration.event_systems.task_readiness.timing]
 health_check_interval_seconds = 30
@@ -44,10 +176,58 @@ visibility_timeout_seconds = 30
 processing_timeout_seconds = 60
 claim_timeout_seconds = 300
 
+[orchestration.event_systems.task_readiness.timing._docs.health_check_interval_seconds]
+description = "Interval in seconds between health check probes for the task readiness event system"
+type = "u32"
+valid_range = "1-3600"
+system_impact = "Controls how frequently the task readiness system verifies its own connectivity"
+
+[orchestration.event_systems.task_readiness.timing._docs.fallback_polling_interval_seconds]
+description = "Interval in seconds between fallback polling cycles for task readiness"
+type = "u32"
+valid_range = "1-60"
+system_impact = "Fallback interval when LISTEN/NOTIFY is unavailable; lower values improve responsiveness"
+
+[orchestration.event_systems.task_readiness.timing._docs.visibility_timeout_seconds]
+description = "Time in seconds a dequeued task readiness message remains invisible to other consumers"
+type = "u32"
+valid_range = "1-3600"
+system_impact = "Prevents duplicate processing of readiness events during normal operation"
+
+[orchestration.event_systems.task_readiness.timing._docs.processing_timeout_seconds]
+description = "Maximum time in seconds allowed for processing a single task readiness event"
+type = "u32"
+valid_range = "1-3600"
+system_impact = "Readiness events exceeding this timeout are considered failed"
+
+[orchestration.event_systems.task_readiness.timing._docs.claim_timeout_seconds]
+description = "Maximum time in seconds a task readiness event claim remains valid"
+type = "u32"
+valid_range = "1-3600"
+system_impact = "Prevents abandoned readiness claims from blocking task evaluation"
+
 [orchestration.event_systems.task_readiness.processing]
 max_concurrent_operations = 100
 batch_size = 50
 max_retries = 3
+
+[orchestration.event_systems.task_readiness.processing._docs.max_concurrent_operations]
+description = "Maximum number of task readiness events processed concurrently"
+type = "u32"
+valid_range = "1-10000"
+system_impact = "Higher than orchestration (100 vs 50) because readiness checks are lightweight SQL queries"
+
+[orchestration.event_systems.task_readiness.processing._docs.batch_size]
+description = "Number of task readiness events dequeued in a single batch"
+type = "u32"
+valid_range = "1-1000"
+system_impact = "Larger batches improve throughput for readiness evaluation; 50 balances latency and throughput"
+
+[orchestration.event_systems.task_readiness.processing._docs.max_retries]
+description = "Maximum retry attempts for a failed task readiness event"
+type = "u32"
+valid_range = "0-100"
+system_impact = "Readiness events are idempotent so retries are safe; limits retry storms"
 
 [orchestration.event_systems.task_readiness.processing.backoff]
 initial_delay_ms = 100
@@ -55,11 +235,59 @@ max_delay_ms = 10000
 multiplier = 2.0
 jitter_percent = 0.1
 
+[orchestration.event_systems.task_readiness.processing.backoff._docs.initial_delay_ms]
+description = "Initial backoff delay in milliseconds after first task readiness processing failure"
+type = "u64"
+valid_range = "10-60000"
+system_impact = "Starting point for exponential backoff on readiness check failures"
+
+[orchestration.event_systems.task_readiness.processing.backoff._docs.max_delay_ms]
+description = "Maximum backoff delay in milliseconds for task readiness retries"
+type = "u64"
+valid_range = "100-300000"
+system_impact = "Caps exponential growth to prevent excessively long delays between readiness checks"
+
+[orchestration.event_systems.task_readiness.processing.backoff._docs.multiplier]
+description = "Multiplier applied to the backoff delay after each consecutive readiness failure"
+type = "f64"
+valid_range = "1.0-10.0"
+system_impact = "Controls how aggressively the delay grows; 2.0 doubles the delay each time"
+
+[orchestration.event_systems.task_readiness.processing.backoff._docs.jitter_percent]
+description = "Maximum jitter as a fraction of the computed backoff delay for readiness retries"
+type = "f64"
+valid_range = "0.0-1.0"
+system_impact = "Randomizes retry timing to prevent synchronized retry storms"
+
 [orchestration.event_systems.task_readiness.health]
 enabled = true
 performance_monitoring_enabled = true
 max_consecutive_errors = 10
 error_rate_threshold_per_minute = 20
+
+[orchestration.event_systems.task_readiness.health._docs.enabled]
+description = "Enable health monitoring for the task readiness event system"
+type = "bool"
+valid_range = "true/false"
+system_impact = "When false, no health checks run for task readiness processing"
+
+[orchestration.event_systems.task_readiness.health._docs.performance_monitoring_enabled]
+description = "Enable detailed performance metrics for task readiness event processing"
+type = "bool"
+valid_range = "true/false"
+system_impact = "Tracks readiness check latency and throughput; useful for tuning batch_size and concurrency"
+
+[orchestration.event_systems.task_readiness.health._docs.max_consecutive_errors]
+description = "Number of consecutive errors before the task readiness system reports as unhealthy"
+type = "u32"
+valid_range = "1-1000"
+system_impact = "Triggers health status degradation; resets on any successful readiness check"
+
+[orchestration.event_systems.task_readiness.health._docs.error_rate_threshold_per_minute]
+description = "Error rate per minute above which the task readiness system reports as unhealthy"
+type = "u32"
+valid_range = "1-10000"
+system_impact = "Rate-based health signal complementing max_consecutive_errors"
 
 [orchestration.decision_points]
 enabled = true
@@ -70,12 +298,78 @@ warn_threshold_depth = 10
 enable_detailed_logging = false
 enable_metrics = true
 
+[orchestration.decision_points._docs.enabled]
+description = "Enable the decision point evaluation subsystem for conditional workflow branching"
+type = "bool"
+valid_range = "true/false"
+system_impact = "When false, all decision points are skipped and conditional steps are not evaluated"
+
+[orchestration.decision_points._docs.max_steps_per_decision]
+description = "Maximum number of steps that can be generated by a single decision point evaluation"
+type = "u32"
+valid_range = "1-10000"
+system_impact = "Safety limit to prevent decision points from creating unbounded step graphs"
+
+[orchestration.decision_points._docs.max_decision_depth]
+description = "Maximum depth of nested decision point chains"
+type = "u32"
+valid_range = "1-100"
+system_impact = "Prevents infinite recursion from circular decision point references"
+
+[orchestration.decision_points._docs.warn_threshold_steps]
+description = "Number of steps per decision above which a warning is logged"
+type = "u32"
+valid_range = "1-10000"
+system_impact = "Observability: identifies decision points that generate unusually large step sets"
+
+[orchestration.decision_points._docs.warn_threshold_depth]
+description = "Decision depth above which a warning is logged"
+type = "u32"
+valid_range = "1-100"
+system_impact = "Observability: identifies deeply nested decision chains that may indicate design issues"
+
+[orchestration.decision_points._docs.enable_detailed_logging]
+description = "Enable verbose logging of decision point evaluation including expression results"
+type = "bool"
+valid_range = "true/false"
+system_impact = "Produces high-volume logs; enable only for debugging specific decision point behavior"
+
+[orchestration.decision_points._docs.enable_metrics]
+description = "Enable metrics collection for decision point evaluations"
+type = "bool"
+valid_range = "true/false"
+system_impact = "Tracks evaluation counts, timings, and branch selection distribution"
+
 # TAS-49: DLQ (Dead Letter Queue) Configuration
 [orchestration.dlq]
 enabled = true
 auto_dlq_on_staleness = true
 include_full_task_snapshot = true
 max_pending_age_hours = 168  # 1 week
+
+[orchestration.dlq._docs.include_full_task_snapshot]
+description = "Include a complete task state snapshot when moving a task to the DLQ"
+type = "bool"
+valid_range = "true/false"
+system_impact = "When true, DLQ entries contain the full task context for debugging; increases DLQ storage requirements"
+
+[orchestration.dlq._docs.enabled]
+description = "Enable the Dead Letter Queue subsystem for handling unrecoverable tasks"
+type = "bool"
+valid_range = "true/false"
+system_impact = "When false, stale or failed tasks remain in their error state without DLQ routing"
+
+[orchestration.dlq._docs.auto_dlq_on_staleness]
+description = "Automatically move stale tasks to the DLQ when staleness detection identifies them"
+type = "bool"
+valid_range = "true/false"
+system_impact = "When true, the staleness detector can autonomously DLQ tasks without manual intervention"
+
+[orchestration.dlq._docs.max_pending_age_hours]
+description = "Maximum age in hours a task can remain in a pending-like state before being considered stale"
+type = "u32"
+valid_range = "1-720"
+system_impact = "Safety net for tasks that fall through other staleness thresholds; 168 = 1 week"
 
 [orchestration.dlq.reasons]
 staleness_timeout = true
@@ -84,11 +378,65 @@ worker_unavailable = true
 dependency_cycle_detected = true
 manual_dlq = true
 
+[orchestration.dlq.reasons._docs.staleness_timeout]
+description = "Enable DLQ routing for tasks that exceed staleness time thresholds"
+type = "bool"
+valid_range = "true/false"
+system_impact = "When false, stale tasks are not automatically moved to the DLQ even if detected"
+
+[orchestration.dlq.reasons._docs.max_retries_exceeded]
+description = "Enable DLQ routing for tasks whose steps have exhausted all retry attempts"
+type = "bool"
+valid_range = "true/false"
+system_impact = "When false, tasks with exhausted retries remain in error state without DLQ routing"
+
+[orchestration.dlq.reasons._docs.worker_unavailable]
+description = "Enable DLQ routing for tasks whose required worker becomes unavailable"
+type = "bool"
+valid_range = "true/false"
+system_impact = "When false, tasks waiting for unavailable workers remain in their current state indefinitely"
+
+[orchestration.dlq.reasons._docs.dependency_cycle_detected]
+description = "Enable DLQ routing for tasks with circular step dependency graphs"
+type = "bool"
+valid_range = "true/false"
+system_impact = "Cycles make task completion impossible; DLQ routing preserves the task for debugging"
+
+[orchestration.dlq.reasons._docs.manual_dlq]
+description = "Allow manual DLQ routing via the API"
+type = "bool"
+valid_range = "true/false"
+system_impact = "When false, the manual DLQ API endpoint is disabled"
+
 [orchestration.dlq.staleness_detection]
 enabled = true
 detection_interval_seconds = 300  # 5 minutes
 batch_size = 100
 dry_run = false
+
+[orchestration.dlq.staleness_detection._docs.batch_size]
+description = "Number of potentially stale tasks to evaluate in a single detection sweep"
+type = "u32"
+valid_range = "1-10000"
+system_impact = "Larger batches process more stale tasks per sweep but increase per-sweep query cost"
+
+[orchestration.dlq.staleness_detection._docs.enabled]
+description = "Enable periodic scanning for stale tasks"
+type = "bool"
+valid_range = "true/false"
+system_impact = "When false, no automatic staleness detection runs; tasks must be manually DLQ'd"
+
+[orchestration.dlq.staleness_detection._docs.detection_interval_seconds]
+description = "Interval in seconds between staleness detection sweeps"
+type = "u32"
+valid_range = "30-3600"
+system_impact = "Lower values detect stale tasks faster but increase database query frequency"
+
+[orchestration.dlq.staleness_detection._docs.dry_run]
+description = "Run staleness detection in observation-only mode without taking action"
+type = "bool"
+valid_range = "true/false"
+system_impact = "Logs what would be DLQ'd without actually transitioning tasks; useful for tuning thresholds"
 
 [orchestration.dlq.staleness_detection.thresholds]
 waiting_for_dependencies_minutes = 60  # TAS-48 consolidation
@@ -96,11 +444,59 @@ waiting_for_retry_minutes = 30         # TAS-48 consolidation
 steps_in_process_minutes = 30
 task_max_lifetime_hours = 24
 
+[orchestration.dlq.staleness_detection.thresholds._docs.waiting_for_dependencies_minutes]
+description = "Minutes a task can wait for step dependencies before being considered stale"
+type = "u32"
+valid_range = "1-1440"
+system_impact = "Tasks in WaitingForDependencies state exceeding this age are flagged for DLQ consideration"
+
+[orchestration.dlq.staleness_detection.thresholds._docs.waiting_for_retry_minutes]
+description = "Minutes a task can wait for step retries before being considered stale"
+type = "u32"
+valid_range = "1-1440"
+system_impact = "Tasks in WaitingForRetry state exceeding this age are flagged for DLQ consideration"
+
+[orchestration.dlq.staleness_detection.thresholds._docs.steps_in_process_minutes]
+description = "Minutes a task can have steps in process before being considered stale"
+type = "u32"
+valid_range = "1-1440"
+system_impact = "Tasks in StepsInProcess state exceeding this age may have hung workers; flags for investigation"
+
+[orchestration.dlq.staleness_detection.thresholds._docs.task_max_lifetime_hours]
+description = "Absolute maximum lifetime for any task regardless of state"
+type = "u32"
+valid_range = "1-168"
+system_impact = "Hard cap; tasks exceeding this age are considered stale even if actively processing"
+
 [orchestration.dlq.staleness_detection.actions]
 auto_transition_to_error = true
 auto_move_to_dlq = true
 emit_events = true
 event_channel = "task_staleness_detected"
+
+[orchestration.dlq.staleness_detection.actions._docs.auto_transition_to_error]
+description = "Automatically transition stale tasks to the Error state"
+type = "bool"
+valid_range = "true/false"
+system_impact = "When true, stale tasks are moved to Error before DLQ routing; when false, tasks stay in their current state"
+
+[orchestration.dlq.staleness_detection.actions._docs.auto_move_to_dlq]
+description = "Automatically move stale tasks to the DLQ after transitioning to error"
+type = "bool"
+valid_range = "true/false"
+system_impact = "When true, stale tasks are routed to the DLQ; when false, they remain in Error state for manual review"
+
+[orchestration.dlq.staleness_detection.actions._docs.emit_events]
+description = "Emit domain events when staleness is detected"
+type = "bool"
+valid_range = "true/false"
+system_impact = "When true, staleness events are published to the event_channel for external alerting or custom handling"
+
+[orchestration.dlq.staleness_detection.actions._docs.event_channel]
+description = "PGMQ channel name for staleness detection events"
+type = "String"
+valid_range = "1-255 characters"
+system_impact = "Consumers can subscribe to this channel for alerting or custom staleness handling"
 
 # TAS-59: Batch Processing Configuration
 # TAS-125: Removed checkpoint_interval_default - handlers decide when to checkpoint
@@ -110,19 +506,83 @@ max_parallel_batches = 50
 default_batch_size = 1000
 checkpoint_stall_minutes = 15
 
+[orchestration.batch_processing._docs.enabled]
+description = "Enable the batch processing subsystem for large-scale step execution"
+type = "bool"
+valid_range = "true/false"
+system_impact = "When false, batch step handlers cannot be used; all steps must be processed individually"
+
+[orchestration.batch_processing._docs.max_parallel_batches]
+description = "Maximum number of batch operations that can execute concurrently"
+type = "u32"
+valid_range = "1-1000"
+system_impact = "Bounds resource usage from concurrent batch processing; increase for high-throughput batch workloads"
+
+[orchestration.batch_processing._docs.default_batch_size]
+description = "Default number of items in a single batch when not specified by the handler"
+type = "u32"
+valid_range = "1-100000"
+system_impact = "Larger batches improve throughput but increase memory usage and per-batch latency"
+
+[orchestration.batch_processing._docs.checkpoint_stall_minutes]
+description = "Minutes without a checkpoint update before a batch is considered stalled"
+type = "u32"
+valid_range = "1-1440"
+system_impact = "Stalled batches are flagged for investigation or automatic recovery; lower values detect issues faster"
+
 [orchestration.mpsc_channels.command_processor]
 command_buffer_size = 5000
+
+[orchestration.mpsc_channels.command_processor._docs.command_buffer_size]
+description = "Bounded channel capacity for the orchestration command processor"
+type = "usize"
+valid_range = "100-100000"
+system_impact = "Buffers incoming orchestration commands; larger values absorb traffic spikes but use more memory"
 
 [orchestration.mpsc_channels.event_systems]
 event_channel_buffer_size = 10000
 
+[orchestration.mpsc_channels.event_systems._docs.event_channel_buffer_size]
+description = "Bounded channel capacity for the orchestration event system internal channel"
+type = "usize"
+valid_range = "100-100000"
+system_impact = "Buffers events between the event listener and event processor; larger values absorb notification bursts"
+
 [orchestration.mpsc_channels.event_listeners]
 pgmq_event_buffer_size = 50000
+
+[orchestration.mpsc_channels.event_listeners._docs.pgmq_event_buffer_size]
+description = "Bounded channel capacity for PGMQ event listener notifications"
+type = "usize"
+valid_range = "1000-1000000"
+system_impact = "Large buffer (50000) absorbs high-volume PGMQ LISTEN/NOTIFY events without backpressure on PostgreSQL"
 
 [orchestration.web]
 enabled = true
 bind_address = "${TASKER_WEB_BIND_ADDRESS:-0.0.0.0:8080}"
 request_timeout_ms = 30000
+
+[orchestration.web._docs.enabled]
+description = "Enable the REST API server for the orchestration service"
+type = "bool"
+valid_range = "true/false"
+system_impact = "When false, no HTTP endpoints are available; the service operates via messaging only"
+
+[orchestration.web._docs.bind_address]
+description = "Socket address for the REST API server"
+type = "String"
+valid_range = "host:port"
+system_impact = "Determines where the orchestration REST API listens; use 0.0.0.0 for container deployments"
+
+[orchestration.web._docs.bind_address.recommendations]
+test = { value = "0.0.0.0:8080", rationale = "Default port for test fixtures" }
+production = { value = "0.0.0.0:8080", rationale = "Standard port; use TASKER_WEB_BIND_ADDRESS env var to override in CI" }
+
+[orchestration.web._docs.request_timeout_ms]
+description = "Maximum time in milliseconds for an HTTP request to complete before timeout"
+type = "u32"
+valid_range = "100-300000"
+system_impact = "Requests exceeding this timeout return HTTP 408; protects against slow client connections"
 
 [orchestration.web.database_pools]
 web_api_pool_size = 20
@@ -130,6 +590,36 @@ web_api_max_connections = 30
 web_api_connection_timeout_seconds = 30
 web_api_idle_timeout_seconds = 600
 max_total_connections_hint = 50
+
+[orchestration.web.database_pools._docs.web_api_pool_size]
+description = "Target number of connections in the web API database pool"
+type = "u32"
+valid_range = "1-200"
+system_impact = "Determines how many concurrent database queries the REST API can execute"
+
+[orchestration.web.database_pools._docs.web_api_max_connections]
+description = "Maximum number of connections the web API pool can grow to under load"
+type = "u32"
+valid_range = "1-500"
+system_impact = "Hard ceiling for web API database connections; prevents connection exhaustion from traffic spikes"
+
+[orchestration.web.database_pools._docs.web_api_connection_timeout_seconds]
+description = "Maximum time to wait when acquiring a connection from the web API pool"
+type = "u32"
+valid_range = "1-300"
+system_impact = "API requests that cannot acquire a connection within this window return an error"
+
+[orchestration.web.database_pools._docs.web_api_idle_timeout_seconds]
+description = "Time before an idle web API connection is closed"
+type = "u32"
+valid_range = "1-3600"
+system_impact = "Controls how quickly the web API pool shrinks after traffic subsides"
+
+[orchestration.web.database_pools._docs.max_total_connections_hint]
+description = "Advisory hint for the total number of database connections across all orchestration pools"
+type = "u32"
+valid_range = "1-1000"
+system_impact = "Used for capacity planning; not enforced but logged if actual connections exceed this hint"
 
 # TAS-61: Removed [orchestration.web.cors] - CORS uses hardcoded tower_http::cors::Any in middleware
 # See: tasker-orchestration/src/web/middleware/mod.rs:create_cors_layer()
@@ -145,6 +635,60 @@ jwt_public_key_path = "${TASKER_JWT_PUBLIC_KEY_PATH:-}"
 api_key = ""
 api_key_header = "X-API-Key"
 
+[orchestration.web.auth._docs.jwt_audience]
+description = "Expected 'aud' claim in JWT tokens"
+type = "String"
+valid_range = "non-empty string"
+system_impact = "Tokens with a different audience are rejected during validation"
+
+[orchestration.web.auth._docs.jwt_token_expiry_hours]
+description = "Default JWT token validity period in hours"
+type = "u32"
+valid_range = "1-720"
+system_impact = "Tokens older than this are rejected; shorter values improve security but require more frequent re-authentication"
+
+[orchestration.web.auth._docs.jwt_private_key]
+description = "PEM-encoded private key for signing JWT tokens (if this service issues tokens)"
+type = "String"
+valid_range = "valid PEM private key or empty"
+system_impact = "Required only if the orchestration service issues its own JWT tokens; leave empty when using external identity providers"
+
+[orchestration.web.auth._docs.jwt_public_key]
+description = "PEM-encoded public key for verifying JWT token signatures"
+type = "String"
+valid_range = "valid PEM public key or empty"
+system_impact = "Required for JWT validation; prefer jwt_public_key_path for file-based key management in production"
+
+[orchestration.web.auth._docs.jwt_public_key_path]
+description = "File path to a PEM-encoded public key for JWT verification"
+type = "String"
+valid_range = "valid file path or empty"
+system_impact = "Alternative to inline jwt_public_key; supports key rotation by replacing the file"
+
+[orchestration.web.auth._docs.api_key]
+description = "Static API key for simple key-based authentication"
+type = "String"
+valid_range = "non-empty string or empty to disable"
+system_impact = "When non-empty and auth is enabled, clients can authenticate by sending this key in the api_key_header"
+
+[orchestration.web.auth._docs.enabled]
+description = "Enable authentication for the REST API"
+type = "bool"
+valid_range = "true/false"
+system_impact = "When false, all API endpoints are unauthenticated; enable in production with JWT or API key auth"
+
+[orchestration.web.auth._docs.jwt_issuer]
+description = "Expected 'iss' claim in JWT tokens"
+type = "String"
+valid_range = "non-empty string"
+system_impact = "Tokens with a different issuer are rejected during validation"
+
+[orchestration.web.auth._docs.api_key_header]
+description = "HTTP header name for API key authentication"
+type = "String"
+valid_range = "valid HTTP header name"
+system_impact = "Clients send their API key in this header; default is X-API-Key"
+
 # TAS-177: Removed protected_routes - superseded by SecurityContext permissions
 # Route protection is now handled via SecurityContext and permission checks in handlers.
 # TAS-61: Removed [orchestration.web.rate_limiting] - no rate limiting middleware implemented
@@ -153,6 +697,12 @@ api_key_header = "X-API-Key"
 circuit_breaker_enabled = true
 # TAS-61: Removed request_timeout_seconds - timeout hardcoded in middleware (30s)
 # TAS-61: Removed max_concurrent_requests - no concurrency limiting implemented
+
+[orchestration.web.resilience._docs.circuit_breaker_enabled]
+description = "Enable circuit breaker protection for the orchestration REST API"
+type = "bool"
+valid_range = "true/false"
+system_impact = "When true, the API uses circuit breakers to protect against cascading failures from downstream dependencies"
 
 # TAS-177: gRPC API Configuration
 # Configuration for the gRPC server that runs alongside the REST API
@@ -169,3 +719,57 @@ max_concurrent_streams = 200
 max_frame_size = 16384
 enable_reflection = true
 enable_health_service = true
+
+[orchestration.grpc._docs.enabled]
+description = "Enable the gRPC API server alongside the REST API"
+type = "bool"
+valid_range = "true/false"
+system_impact = "When false, no gRPC endpoints are available; clients must use REST"
+
+[orchestration.grpc._docs.bind_address]
+description = "Socket address for the gRPC server"
+type = "String"
+valid_range = "host:port"
+system_impact = "Must not conflict with the REST API bind_address; default 9190 avoids Prometheus port conflict"
+
+[orchestration.grpc._docs.tls_enabled]
+description = "Enable TLS encryption for gRPC connections"
+type = "bool"
+valid_range = "true/false"
+system_impact = "When true, tls_cert_path and tls_key_path must be provided; required for production gRPC deployments"
+
+[orchestration.grpc._docs.enable_reflection]
+description = "Enable gRPC server reflection for service discovery"
+type = "bool"
+valid_range = "true/false"
+system_impact = "Allows tools like grpcurl to list and inspect services; safe to enable in development, consider disabling in production"
+
+[orchestration.grpc._docs.enable_health_service]
+description = "Enable the gRPC health checking service (grpc.health.v1)"
+type = "bool"
+valid_range = "true/false"
+system_impact = "Required for gRPC-native health checks used by load balancers and container orchestrators"
+
+[orchestration.grpc._docs.keepalive_interval_seconds]
+description = "Interval in seconds between gRPC keepalive ping frames"
+type = "u32"
+valid_range = "1-3600"
+system_impact = "Detects dead connections; lower values detect failures faster but increase network overhead"
+
+[orchestration.grpc._docs.keepalive_timeout_seconds]
+description = "Time in seconds to wait for a keepalive ping acknowledgment before closing the connection"
+type = "u32"
+valid_range = "1-300"
+system_impact = "Connections that fail to acknowledge within this window are considered dead and closed"
+
+[orchestration.grpc._docs.max_concurrent_streams]
+description = "Maximum number of concurrent gRPC streams per connection"
+type = "u32"
+valid_range = "1-10000"
+system_impact = "Limits multiplexed request parallelism per connection; 200 is conservative for orchestration workloads"
+
+[orchestration.grpc._docs.max_frame_size]
+description = "Maximum size in bytes of a single HTTP/2 frame"
+type = "u32"
+valid_range = "16384-16777215"
+system_impact = "Larger frames reduce framing overhead for large messages but increase memory per-stream"
