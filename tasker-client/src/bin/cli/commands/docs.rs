@@ -269,9 +269,10 @@ async fn handle_index(output: Option<&str>, base_dir: &str) -> ClientResult<()> 
 }
 
 // ── Rendering helpers ────────────────────────────────────────────────────
+// pub(crate) so `config explain` can delegate to the same Askama rendering.
 
 #[cfg(feature = "docs-gen")]
-fn render_reference(
+pub(crate) fn render_reference(
     context_name: &str,
     sections: &[tasker_shared::config::doc_context::SectionContext],
     total_parameters: usize,
@@ -291,7 +292,7 @@ fn render_reference(
 }
 
 #[cfg(not(feature = "docs-gen"))]
-fn render_reference(
+pub(crate) fn render_reference(
     context_name: &str,
     sections: &[tasker_shared::config::doc_context::SectionContext],
     total_parameters: usize,
@@ -308,7 +309,7 @@ fn render_reference(
 }
 
 #[cfg(feature = "docs-gen")]
-fn render_annotated(
+pub(crate) fn render_annotated(
     context_name: &str,
     environment: &str,
     sections: &[tasker_shared::config::doc_context::SectionContext],
@@ -324,7 +325,7 @@ fn render_annotated(
 }
 
 #[cfg(not(feature = "docs-gen"))]
-fn render_annotated(
+pub(crate) fn render_annotated(
     context_name: &str,
     environment: &str,
     sections: &[tasker_shared::config::doc_context::SectionContext],
@@ -338,7 +339,7 @@ fn render_annotated(
 }
 
 #[cfg(feature = "docs-gen")]
-fn render_section_detail(
+pub(crate) fn render_section_detail(
     section: &tasker_shared::config::doc_context::SectionContext,
     context_name: &str,
     environment: Option<&str>,
@@ -354,7 +355,7 @@ fn render_section_detail(
 }
 
 #[cfg(not(feature = "docs-gen"))]
-fn render_section_detail(
+pub(crate) fn render_section_detail(
     section: &tasker_shared::config::doc_context::SectionContext,
     context_name: &str,
     _environment: Option<&str>,
@@ -368,7 +369,7 @@ fn render_section_detail(
 }
 
 #[cfg(feature = "docs-gen")]
-fn render_parameter_explain(
+pub(crate) fn render_parameter_explain(
     parameter: &tasker_shared::config::doc_context::ParameterContext,
     environment: Option<&str>,
 ) -> ClientResult<String> {
@@ -382,7 +383,7 @@ fn render_parameter_explain(
 }
 
 #[cfg(not(feature = "docs-gen"))]
-fn render_parameter_explain(
+pub(crate) fn render_parameter_explain(
     parameter: &tasker_shared::config::doc_context::ParameterContext,
     _environment: Option<&str>,
 ) -> ClientResult<String> {
@@ -393,7 +394,7 @@ fn render_parameter_explain(
 }
 
 #[cfg(feature = "docs-gen")]
-fn render_index(
+pub(crate) fn render_index(
     common_sections: &[tasker_shared::config::doc_context::SectionContext],
     orchestration_sections: &[tasker_shared::config::doc_context::SectionContext],
     worker_sections: &[tasker_shared::config::doc_context::SectionContext],
@@ -415,7 +416,7 @@ fn render_index(
 }
 
 #[cfg(not(feature = "docs-gen"))]
-fn render_index(
+pub(crate) fn render_index(
     common_sections: &[tasker_shared::config::doc_context::SectionContext],
     orchestration_sections: &[tasker_shared::config::doc_context::SectionContext],
     worker_sections: &[tasker_shared::config::doc_context::SectionContext],
@@ -435,7 +436,7 @@ fn render_index(
 
 // ── Utility helpers ──────────────────────────────────────────────────────
 
-fn create_builder(base_dir: &str) -> ClientResult<DocContextBuilder> {
+pub(crate) fn create_builder(base_dir: &str) -> ClientResult<DocContextBuilder> {
     DocContextBuilder::new(PathBuf::from(base_dir)).map_err(|e| {
         tasker_client::ClientError::ConfigError(format!(
             "Failed to load configuration documentation from '{}': {}",
@@ -444,7 +445,7 @@ fn create_builder(base_dir: &str) -> ClientResult<DocContextBuilder> {
     })
 }
 
-fn parse_context(context: &str) -> ClientResult<ConfigContext> {
+pub(crate) fn parse_context(context: &str) -> ClientResult<ConfigContext> {
     ConfigContext::from_str_loose(context).ok_or_else(|| {
         tasker_client::ClientError::ConfigError(format!(
             "Unknown context '{}'. Expected: common, orchestration, worker",
@@ -453,7 +454,7 @@ fn parse_context(context: &str) -> ClientResult<ConfigContext> {
     })
 }
 
-fn write_output(content: &str, output: Option<&str>) -> ClientResult<()> {
+pub(crate) fn write_output(content: &str, output: Option<&str>) -> ClientResult<()> {
     if let Some(path) = output {
         // Ensure parent directory exists
         if let Some(parent) = std::path::Path::new(path).parent() {
@@ -477,7 +478,7 @@ fn write_output(content: &str, output: Option<&str>) -> ClientResult<()> {
     Ok(())
 }
 
-fn find_section_by_path<'a>(
+pub(crate) fn find_section_by_path<'a>(
     sections: &'a [tasker_shared::config::doc_context::SectionContext],
     path: &str,
 ) -> Option<&'a tasker_shared::config::doc_context::SectionContext> {
