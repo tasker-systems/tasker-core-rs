@@ -23,14 +23,15 @@
 //! - `EventDrivenSystem` trait for unified lifecycle management
 //! - `EventSystemStatistics` for consistent monitoring
 pub use tasker_shared::config::OrchestrationEventSystemConfig;
+pub(crate) mod command_outcome;
 pub mod orchestration_event_system;
+pub mod orchestration_statistics;
 pub mod task_readiness_event_system;
 pub mod unified_event_coordinator;
 
 // Re-export key types for external usage
-pub use orchestration_event_system::{
-    OrchestrationComponentStatistics, OrchestrationEventSystem, OrchestrationStatistics,
-};
+pub use orchestration_event_system::OrchestrationEventSystem;
+pub use orchestration_statistics::{OrchestrationComponentStatistics, OrchestrationStatistics};
 pub use task_readiness_event_system::TaskReadinessEventSystem;
 pub use unified_event_coordinator::{
     UnifiedCoordinatorConfig, UnifiedEventCoordinator, UnifiedHealthReport,

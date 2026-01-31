@@ -27,7 +27,6 @@
 //! Works with:
 //! - `OrchestrationResultProcessor`: For step result processing and metadata handling
 //! - `TaskFinalizer`: For task completion logic
-//! - `StateManager`: For state transitions
 //! - `PgmqClient`: For queue operations
 //! - Queue workers: Processes results from autonomous Ruby queue workers
 //!

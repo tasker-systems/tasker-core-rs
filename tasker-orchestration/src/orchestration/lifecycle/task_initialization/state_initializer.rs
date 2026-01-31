@@ -4,15 +4,15 @@
 //! This includes creating initial database transitions and transitioning
 //! the task from Pending to Initializing state.
 
-use crate::orchestration::state_manager::StateManager;
 use serde_json::json;
 use sqlx::types::Uuid;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tasker_shared::models::core::task_transition::NewTaskTransition;
 use tasker_shared::models::core::workflow_step_transition::NewWorkflowStepTransition;
-use tasker_shared::models::{TaskTransition, WorkflowStepTransition};
+use tasker_shared::models::{TaskTransition, WorkflowStep, WorkflowStepTransition};
 use tasker_shared::state_machine::states::TaskState;
+use tasker_shared::state_machine::step_state_machine::StepStateMachine;
 use tasker_shared::state_machine::{TaskEvent, TaskStateMachine};
 use tasker_shared::system_context::SystemContext;
 use tracing::{error, info, warn};
@@ -23,16 +23,11 @@ use super::TaskInitializationError;
 #[derive(Debug)]
 pub struct StateInitializer {
     context: Arc<SystemContext>,
-    state_manager: StateManager,
 }
 
 impl StateInitializer {
     pub fn new(context: Arc<SystemContext>) -> Self {
-        let state_manager = StateManager::new(context.clone());
-        Self {
-            context,
-            state_manager,
-        }
+        Self { context }
     }
 
     /// Create initial state transitions in database using consistent transaction methods
@@ -147,33 +142,34 @@ impl StateInitializer {
             );
         }
 
-        // Initialize step state machines WITHOUT evaluating state transitions
+        // Verify step state machines can be created WITHOUT evaluating state transitions.
         // We don't want to transition steps to InProgress during initialization
-        // as this sets in_process=true, making them ineligible for execution
+        // as this sets in_process=true, making them ineligible for execution.
         for &workflow_step_uuid in step_mapping.values() {
-            // Simply verify the state machine exists, don't evaluate/transition
-            match self
-                .state_manager
-                .get_or_create_step_state_machine(workflow_step_uuid)
-                .await
-            {
-                Ok(state_machine) => match state_machine.current_state().await {
-                    Ok(_current_state) => {}
-                    Err(e) => {
+            match WorkflowStep::find_by_id(self.context.database_pool(), workflow_step_uuid).await {
+                Ok(Some(workflow_step)) => {
+                    let state_machine = StepStateMachine::new(workflow_step, self.context.clone());
+                    if let Err(e) = state_machine.current_state().await {
                         warn!(
                             step_uuid = %workflow_step_uuid,
                             error = %e,
                             "Failed to get current state from step state machine"
                         );
                     }
-                },
+                }
+                Ok(None) => {
+                    warn!(
+                        step_uuid = %workflow_step_uuid,
+                        "Step not found in database during state machine initialization"
+                    );
+                }
                 Err(e) => {
                     warn!(
                         step_uuid = %workflow_step_uuid,
                         error = %e,
-                        "Failed to initialize step state machine, basic initialization completed"
+                        "Failed to load step for state machine initialization"
                     );
-                    // Don't fail the entire initialization for StateManager issues
+                    // Don't fail the entire initialization for step loading issues
                 }
             }
         }

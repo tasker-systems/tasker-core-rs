@@ -8,8 +8,7 @@
 //! integration with the EventSystemManager.
 
 use async_trait::async_trait;
-use std::collections::VecDeque;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tasker_shared::config::orchestration::event_systems::OrchestrationEventSystemConfig;
@@ -20,19 +19,18 @@ use crate::orchestration::{
     channels::{ChannelFactory, OrchestrationCommandSender},
     commands::OrchestrationCommand,
     orchestration_queues::{
-        OrchestrationFallbackPoller, OrchestrationListenerConfig, OrchestrationListenerStats,
-        OrchestrationNotification, OrchestrationPollerConfig, OrchestrationPollerStats,
-        OrchestrationQueueEvent, OrchestrationQueueListener,
+        OrchestrationFallbackPoller, OrchestrationListenerConfig, OrchestrationNotification,
+        OrchestrationPollerConfig, OrchestrationQueueEvent, OrchestrationQueueListener,
     },
     OrchestrationCore,
 };
 use tasker_shared::monitoring::ChannelMonitor;
 use tasker_shared::{DeploymentMode, DeploymentModeError, DeploymentModeHealthStatus};
 
-use crate::orchestration::commands::{
-    StepProcessResult, TaskFinalizationResult, TaskInitializeResult,
-};
 use tasker_shared::{EventDrivenSystem, EventSystemStatistics, SystemStatistics};
+
+use super::command_outcome::CommandOutcome;
+use super::orchestration_statistics::{OrchestrationComponentStatistics, OrchestrationStatistics};
 
 /// Queue-level event system for orchestration coordination
 ///
@@ -81,162 +79,6 @@ pub struct OrchestrationEventSystem {
 
     /// Channel monitor for command send observability (TAS-51)
     command_channel_monitor: ChannelMonitor,
-}
-
-/// Runtime statistics for orchestration event system
-#[derive(Debug, Default)]
-pub struct OrchestrationStatistics {
-    /// Events processed counter (system-level)
-    events_processed: AtomicU64,
-    /// Events failed counter (system-level)
-    events_failed: AtomicU64,
-    /// Operations coordinated counter (system-level)
-    operations_coordinated: AtomicU64,
-    /// Last processing timestamp as epoch nanos (0 = never processed)
-    last_processing_time_epoch_nanos: AtomicU64,
-    /// Processing latencies for rate calculation (system-level)
-    processing_latencies: std::sync::Mutex<VecDeque<Duration>>,
-}
-
-impl Clone for OrchestrationStatistics {
-    fn clone(&self) -> Self {
-        Self {
-            events_processed: AtomicU64::new(self.events_processed.load(Ordering::Relaxed)),
-            events_failed: AtomicU64::new(self.events_failed.load(Ordering::Relaxed)),
-            operations_coordinated: AtomicU64::new(
-                self.operations_coordinated.load(Ordering::Relaxed),
-            ),
-            last_processing_time_epoch_nanos: AtomicU64::new(
-                self.last_processing_time_epoch_nanos
-                    .load(Ordering::Relaxed),
-            ),
-            processing_latencies: std::sync::Mutex::new(
-                self.processing_latencies
-                    .lock()
-                    .unwrap_or_else(|p| p.into_inner())
-                    .clone(),
-            ),
-        }
-    }
-}
-
-impl EventSystemStatistics for OrchestrationStatistics {
-    fn events_processed(&self) -> u64 {
-        self.events_processed.load(Ordering::Relaxed)
-    }
-
-    fn events_failed(&self) -> u64 {
-        self.events_failed.load(Ordering::Relaxed)
-    }
-
-    fn processing_rate(&self) -> f64 {
-        let latencies = self
-            .processing_latencies
-            .lock()
-            .unwrap_or_else(|p| p.into_inner());
-        if latencies.is_empty() {
-            return 0.0;
-        }
-
-        // Calculate events per second based on recent latencies
-        let recent_latencies: Vec<_> = latencies.iter().rev().take(100).collect();
-        if recent_latencies.is_empty() {
-            return 0.0;
-        }
-
-        let total_time: Duration = recent_latencies.iter().copied().sum();
-        if total_time.as_secs_f64() > 0.0 {
-            recent_latencies.len() as f64 / total_time.as_secs_f64()
-        } else {
-            0.0
-        }
-    }
-
-    fn average_latency_ms(&self) -> f64 {
-        let latencies = self
-            .processing_latencies
-            .lock()
-            .unwrap_or_else(|p| p.into_inner());
-        if latencies.is_empty() {
-            return 0.0;
-        }
-
-        let sum: Duration = latencies.iter().sum();
-        sum.as_millis() as f64 / latencies.len() as f64
-    }
-
-    fn deployment_mode_score(&self) -> f64 {
-        // Score based on success rate and processing efficiency
-        let total_events = self.events_processed() + self.events_failed();
-        if total_events == 0 {
-            return 1.0; // No events yet, assume perfect
-        }
-
-        let success_rate = self.events_processed() as f64 / total_events as f64;
-        let latency = self.average_latency_ms();
-
-        // High score for high success rate and low latency
-        let latency_score = if latency > 0.0 { 100.0 / latency } else { 1.0 };
-        (success_rate + latency_score.min(1.0)) / 2.0
-    }
-}
-
-impl OrchestrationStatistics {
-    /// Create statistics aggregated from component statistics
-    pub async fn with_component_aggregation(
-        &self,
-        fallback_poller: Option<&OrchestrationFallbackPoller>,
-        queue_listener: Option<&OrchestrationQueueListener>,
-    ) -> OrchestrationStatistics {
-        let aggregated = self.clone();
-
-        // Aggregate fallback poller statistics
-        if let Some(poller) = fallback_poller {
-            let poller_stats = poller.stats().await;
-            // Add poller-specific events to system total
-            let poller_processed = poller_stats.messages_processed.load(Ordering::Relaxed);
-            aggregated
-                .events_processed
-                .fetch_add(poller_processed, Ordering::Relaxed);
-
-            // Add poller errors to system failed events
-            let poller_errors = poller_stats.polling_errors.load(Ordering::Relaxed);
-            aggregated
-                .events_failed
-                .fetch_add(poller_errors, Ordering::Relaxed);
-        }
-
-        // Aggregate queue listener statistics
-        if let Some(listener) = queue_listener {
-            let listener_stats = listener.stats().await;
-            // Add listener-specific events to system total
-            let listener_processed = listener_stats.events_received.load(Ordering::Relaxed);
-            aggregated
-                .events_processed
-                .fetch_add(listener_processed, Ordering::Relaxed);
-
-            // Add listener errors to system failed events
-            let listener_errors = listener_stats.connection_errors.load(Ordering::Relaxed);
-            aggregated
-                .events_failed
-                .fetch_add(listener_errors, Ordering::Relaxed);
-        }
-
-        aggregated
-    }
-}
-
-/// Detailed component statistics for monitoring and debugging
-#[derive(Debug)]
-pub struct OrchestrationComponentStatistics {
-    /// Fallback poller statistics (if active)
-    pub fallback_poller_stats: Option<OrchestrationPollerStats>,
-    /// Queue listener statistics (if active)
-    pub queue_listener_stats: Option<OrchestrationListenerStats>,
-    /// System uptime since start
-    pub system_uptime: Option<Duration>,
-    /// Current deployment mode
-    pub deployment_mode: DeploymentMode,
 }
 
 impl OrchestrationEventSystem {
@@ -426,145 +268,20 @@ impl EventDrivenSystem for OrchestrationEventSystem {
         // Create components based on effective deployment mode using command pattern
         match effective_mode {
             DeploymentMode::PollingOnly => {
-                // Only create fallback poller - sends commands instead of events
-                let poller_config = self.poller_config();
-                // TAS-133e: Removed pgmq_client param - now accessed via MessagingProvider
-                let fallback_poller = OrchestrationFallbackPoller::new(
-                    poller_config,
-                    self.context.clone(),
-                    self.command_sender.clone(),
-                )
-                .await?;
-
-                fallback_poller.start().await?;
-                self.fallback_poller = Some(fallback_poller);
+                self.setup_fallback_poller().await?;
             }
 
             DeploymentMode::Hybrid => {
-                // Create both queue listener (primary) and fallback poller (backup) for hybrid reliability
-                let listener_config = self.listener_config();
-                // TAS-51: Use configured buffer size for event channel
-                let buffer_size = self
-                    .context
-                    .tasker_config
-                    .orchestration
-                    .as_ref()
-                    .map(|o| o.mpsc_channels.event_systems.event_channel_buffer_size)
-                    .unwrap_or(10000);
-                // TAS-133: Use ChannelFactory for type-safe channel creation
-                let (event_sender, mut event_receiver) =
-                    ChannelFactory::orchestration_notification_channel(buffer_size as usize);
-
-                // TAS-51: Initialize channel monitor for observability
-                let channel_monitor =
-                    ChannelMonitor::new("orchestration_hybrid_event_channel", buffer_size as usize);
-
-                let mut queue_listener = OrchestrationQueueListener::new(
-                    listener_config,
-                    self.context.clone(),
-                    event_sender,
-                    channel_monitor.clone(),
-                )
-                .await?;
-
-                queue_listener.start().await?;
-                self.queue_listener = Some(queue_listener);
-
-                // Create fallback poller for backup reliability
-                let poller_config = self.poller_config();
-                // TAS-133e: Removed pgmq_client param - now accessed via MessagingProvider
-                let fallback_poller = OrchestrationFallbackPoller::new(
-                    poller_config,
-                    self.context.clone(),
-                    self.command_sender.clone(),
-                )
-                .await?;
-
-                fallback_poller.start().await?;
-                self.fallback_poller = Some(fallback_poller);
-
-                // Start event processing loop for listener events
-                let context = self.context.clone();
-                let command_sender = self.command_sender.clone();
-                let command_channel_monitor = self.command_channel_monitor.clone();
-                let statistics = self.statistics.clone();
-                let monitor = channel_monitor;
-
-                tokio::spawn(async move {
-                    while let Some(notification) = event_receiver.recv().await {
-                        // TAS-51: Record message receive for channel monitoring
-                        monitor.record_receive();
-
-                        Self::process_orchestration_notification(
-                            notification,
-                            &context,
-                            &command_sender,
-                            &command_channel_monitor,
-                            &statistics,
-                        )
-                        .await;
-                    }
-                });
+                self.setup_listener_and_spawn_loop("orchestration_hybrid_event_channel")
+                    .await?;
+                self.setup_fallback_poller().await?;
             }
 
             DeploymentMode::EventDrivenOnly => {
-                // Pure event-driven mode - create queue listener for orchestration queue events
-                let listener_config = self.listener_config();
-                // TAS-51: Use configured buffer size for event channel
-                let buffer_size = self
-                    .context
-                    .tasker_config
-                    .orchestration
-                    .as_ref()
-                    .map(|o| o.mpsc_channels.event_systems.event_channel_buffer_size)
-                    .unwrap_or(10000);
-                // TAS-133: Use ChannelFactory for type-safe channel creation
-                let (event_sender, mut event_receiver) =
-                    ChannelFactory::orchestration_notification_channel(buffer_size as usize);
-
-                // TAS-51: Initialize channel monitor for observability
-                let channel_monitor = ChannelMonitor::new(
-                    "orchestration_event_driven_event_channel",
-                    buffer_size as usize,
-                );
-
-                let mut queue_listener = OrchestrationQueueListener::new(
-                    listener_config,
-                    self.context.clone(),
-                    event_sender,
-                    channel_monitor.clone(),
-                )
-                .await?;
-
-                queue_listener.start().await?;
-
-                // Start event processing loop
-                let context = self.context.clone();
-                let command_sender = self.command_sender.clone();
-                let command_channel_monitor = self.command_channel_monitor.clone();
-                let statistics = self.statistics.clone();
-                let monitor = channel_monitor;
-
-                tokio::spawn(async move {
-                    while let Some(notification) = event_receiver.recv().await {
-                        // TAS-51: Record message receive for channel monitoring
-                        monitor.record_receive();
-
-                        Self::process_orchestration_notification(
-                            notification,
-                            &context,
-                            &command_sender,
-                            &command_channel_monitor,
-                            &statistics,
-                        )
-                        .await;
-                    }
-                });
-
-                self.queue_listener = Some(queue_listener);
+                self.setup_listener_and_spawn_loop("orchestration_event_driven_event_channel")
+                    .await?;
             }
             DeploymentMode::Disabled => {
-                // Handle disabled mode
                 warn!("OrchestrationEventSystem is disabled");
             }
         }
@@ -645,345 +362,44 @@ impl EventDrivenSystem for OrchestrationEventSystem {
         match event {
             OrchestrationQueueEvent::StepResult(message_event) => {
                 let msg_id = message_event.message_id.clone();
-                let (command_tx, command_rx) = tokio::sync::oneshot::channel();
-
-                let command = OrchestrationCommand::ProcessStepResultFromMessageEvent {
-                    message_event,
-                    resp: command_tx,
-                };
-
-                // Send command to orchestration processor with monitoring (TAS-51)
-                match self.command_sender.send(command).await {
-                    Ok(_) => {
-                        // TAS-51: Record send success and check saturation
-                        if self.command_channel_monitor.record_send_success() {
-                            self.command_channel_monitor
-                                .check_and_warn_saturation(self.command_sender.capacity());
-                        }
-                    }
-                    Err(e) => {
-                        error!(
-                            system_id = %self.system_id,
-                            msg_id = %msg_id,
-                            error = %e,
-                            "Failed to send ProcessStepResult command"
-                        );
-                        self.statistics
-                            .events_failed
-                            .fetch_add(1, Ordering::Relaxed);
-                        return Err(DeploymentModeError::ConfigurationError {
-                            message: format!("Failed to send orchestration command: {}", e),
-                        });
-                    }
-                }
-
-                // Wait for command processing result
-                match command_rx.await {
-                    Ok(Ok(result)) => {
-                        match result {
-                            StepProcessResult::Success { message } => {
-                                debug!(
-                                    system_id = %self.system_id,
-                                    msg_id = %msg_id,
-                                    message = %message,
-                                    "ProcessStepResultFromMessageEvent command completed successfully"
-                                );
-
-                                // Track statistics
-                                self.statistics
-                                    .operations_coordinated
-                                    .fetch_add(1, Ordering::Relaxed);
-                            }
-                            StepProcessResult::Failed { error } => {
-                                warn!(
-                                    system_id = %self.system_id,
-                                    msg_id = %msg_id,
-                                    error = %error,
-                                    "ProcessStepResultFromMessageEvent command failed"
-                                );
-                                self.statistics
-                                    .events_failed
-                                    .fetch_add(1, Ordering::Relaxed);
-                                return Err(DeploymentModeError::ConfigurationError {
-                                    message: format!("Step processing failed: {}", error),
-                                });
-                            }
-                            StepProcessResult::Skipped { reason } => {
-                                debug!(
-                                    system_id = %self.system_id,
-                                    msg_id = %msg_id,
-                                    reason = %reason,
-                                    "ProcessStepResultFromMessageEvent command skipped"
-                                );
-                                // Still count as successful operation
-                                self.statistics
-                                    .operations_coordinated
-                                    .fetch_add(1, Ordering::Relaxed);
-                            }
-                        }
-                    }
-                    Ok(Err(e)) => {
-                        error!(
-                            system_id = %self.system_id,
-                            msg_id = %msg_id,
-                            error = %e,
-                            "ProcessStepResultFromMessageEvent command failed"
-                        );
-                        self.statistics
-                            .events_failed
-                            .fetch_add(1, Ordering::Relaxed);
-                        return Err(DeploymentModeError::ConfigurationError {
-                            message: format!("Command processing failed: {}", e),
-                        });
-                    }
-                    Err(e) => {
-                        error!(
-                            system_id = %self.system_id,
-                            msg_id = %msg_id,
-                            error = %e,
-                            "Failed to receive ProcessStepResultFromMessageEvent command response"
-                        );
-                        self.statistics
-                            .events_failed
-                            .fetch_add(1, Ordering::Relaxed);
-                        return Err(DeploymentModeError::ConfigurationError {
-                            message: format!("Command response failed: {}", e),
-                        });
-                    }
-                }
+                self.send_command_and_await(
+                    |resp| OrchestrationCommand::ProcessStepResultFromMessageEvent {
+                        message_event,
+                        resp,
+                    },
+                    &msg_id,
+                    "ProcessStepResultFromMessageEvent",
+                    CommandOutcome::from_step_result,
+                )
+                .await?;
             }
 
             OrchestrationQueueEvent::TaskRequest(message_event) => {
                 let msg_id = message_event.message_id.clone();
-                let (command_tx, command_rx) = tokio::sync::oneshot::channel();
-
-                let command = OrchestrationCommand::InitializeTaskFromMessageEvent {
-                    message_event,
-                    resp: command_tx,
-                };
-
-                // Send command to orchestration processor with monitoring (TAS-51)
-                match self.command_sender.send(command).await {
-                    Ok(_) => {
-                        // TAS-51: Record send success and check saturation
-                        if self.command_channel_monitor.record_send_success() {
-                            self.command_channel_monitor
-                                .check_and_warn_saturation(self.command_sender.capacity());
-                        }
-                    }
-                    Err(e) => {
-                        error!(
-                            system_id = %self.system_id,
-                            msg_id = %msg_id,
-                            error = %e,
-                            "Failed to send InitializeTaskFromMessageEvent command"
-                        );
-                        self.statistics
-                            .events_failed
-                            .fetch_add(1, Ordering::Relaxed);
-                        return Err(DeploymentModeError::ConfigurationError {
-                            message: format!("Failed to send orchestration command: {}", e),
-                        });
-                    }
-                }
-
-                // Wait for command processing result
-                match command_rx.await {
-                    Ok(Ok(result)) => {
-                        match result {
-                            TaskInitializeResult::Success { task_uuid, message } => {
-                                debug!(
-                                    system_id = %self.system_id,
-                                    msg_id = %msg_id,
-                                    task_uuid = %task_uuid,
-                                    message = %message,
-                                    "InitializeTaskFromMessageEvent command completed successfully"
-                                );
-
-                                // Track statistics
-                                self.statistics
-                                    .operations_coordinated
-                                    .fetch_add(1, Ordering::Relaxed);
-                            }
-                            TaskInitializeResult::Failed { error } => {
-                                warn!(
-                                    system_id = %self.system_id,
-                                    msg_id = %msg_id,
-                                    error = %error,
-                                    "InitializeTaskFromMessageEvent command failed"
-                                );
-                                self.statistics
-                                    .events_failed
-                                    .fetch_add(1, Ordering::Relaxed);
-                                return Err(DeploymentModeError::ConfigurationError {
-                                    message: format!("Task Initialization failed: {}", error),
-                                });
-                            }
-                            TaskInitializeResult::Skipped { reason } => {
-                                debug!(
-                                    system_id = %self.system_id,
-                                    msg_id = %msg_id,
-                                    reason = %reason,
-                                    "InitializeTaskFromMessageEvent command skipped"
-                                );
-                                // Still count as successful operation
-                                self.statistics
-                                    .operations_coordinated
-                                    .fetch_add(1, Ordering::Relaxed);
-                            }
-                        }
-                    }
-                    Ok(Err(e)) => {
-                        error!(
-                            system_id = %self.system_id,
-                            msg_id = %msg_id,
-                            error = %e,
-                            "InitializeTaskFromMessageEvent command failed"
-                        );
-                        self.statistics
-                            .events_failed
-                            .fetch_add(1, Ordering::Relaxed);
-                        return Err(DeploymentModeError::ConfigurationError {
-                            message: format!("Command processing failed: {}", e),
-                        });
-                    }
-                    Err(e) => {
-                        error!(
-                            system_id = %self.system_id,
-                            msg_id = %msg_id,
-                            error = %e,
-                            "Failed to receive InitializeTaskFromMessageEvent command response"
-                        );
-                        self.statistics
-                            .events_failed
-                            .fetch_add(1, Ordering::Relaxed);
-                        return Err(DeploymentModeError::ConfigurationError {
-                            message: format!("Command response failed: {}", e),
-                        });
-                    }
-                }
+                self.send_command_and_await(
+                    |resp| OrchestrationCommand::InitializeTaskFromMessageEvent {
+                        message_event,
+                        resp,
+                    },
+                    &msg_id,
+                    "InitializeTaskFromMessageEvent",
+                    CommandOutcome::from_task_initialize_result,
+                )
+                .await?;
             }
 
             OrchestrationQueueEvent::TaskFinalization(message_event) => {
                 let msg_id = message_event.message_id.clone();
-                let namespace = message_event.namespace.clone();
-                let (command_tx, command_rx) = tokio::sync::oneshot::channel();
-
-                let command = OrchestrationCommand::FinalizeTaskFromMessageEvent {
-                    message_event,
-                    resp: command_tx,
-                };
-
-                // Send command to orchestration processor with monitoring (TAS-51)
-                match self.command_sender.send(command).await {
-                    Ok(_) => {
-                        // TAS-51: Record send success and check saturation
-                        if self.command_channel_monitor.record_send_success() {
-                            self.command_channel_monitor
-                                .check_and_warn_saturation(self.command_sender.capacity());
-                        }
-                    }
-                    Err(e) => {
-                        error!(
-                            system_id = %self.system_id,
-                            msg_id = %msg_id,
-                            namespace = %namespace,
-                            error = %e,
-                            "Failed to send FinalizeTaskFromMessageEvent command"
-                        );
-                        self.statistics
-                            .events_failed
-                            .fetch_add(1, Ordering::Relaxed);
-                        return Err(DeploymentModeError::ConfigurationError {
-                            message: format!("Failed to send orchestration command: {}", e),
-                        });
-                    }
-                }
-
-                // Wait for command processing result
-                match command_rx.await {
-                    Ok(Ok(result)) => {
-                        match result {
-                            TaskFinalizationResult::Success {
-                                task_uuid,
-                                final_status,
-                                completion_time,
-                            } => {
-                                debug!(
-                                    system_id = %self.system_id,
-                                    msg_id = %msg_id,
-                                    task_uuid_completed = %task_uuid,
-                                    final_status = %final_status,
-                                    completion_time = format!("{:?}", completion_time),
-                                    "FinalizeTaskFromMessageEvent command completed successfully"
-                                );
-
-                                // Track statistics
-                                self.statistics
-                                    .operations_coordinated
-                                    .fetch_add(1, Ordering::Relaxed);
-                            }
-                            TaskFinalizationResult::Failed { error } => {
-                                warn!(
-                                    system_id = %self.system_id,
-                                    msg_id = %msg_id,
-                                    error = %error,
-                                    "FinalizeTaskFromMessageEvent command failed"
-                                );
-                                self.statistics
-                                    .events_failed
-                                    .fetch_add(1, Ordering::Relaxed);
-                                return Err(DeploymentModeError::ConfigurationError {
-                                    message: format!("Task Finalization failed: {}", error),
-                                });
-                            }
-                            TaskFinalizationResult::NotClaimed {
-                                reason,
-                                already_claimed_by,
-                            } => {
-                                debug!(
-                                    system_id = %self.system_id,
-                                    msg_id = %msg_id,
-                                    reason = %reason,
-                                    already_claimed_by = %already_claimed_by.unwrap_or(uuid::Uuid::nil()).to_string(),
-                                    "FinalizeTaskFromMessageEvent command not claimed"
-                                );
-                                // Still count as successful operation
-                                self.statistics
-                                    .operations_coordinated
-                                    .fetch_add(1, Ordering::Relaxed);
-                            }
-                        }
-                    }
-                    Ok(Err(e)) => {
-                        error!(
-                            system_id = %self.system_id,
-                            msg_id = %msg_id,
-                            error = %e,
-                            "InitializeTaskFromMessageEvent command failed"
-                        );
-                        self.statistics
-                            .events_failed
-                            .fetch_add(1, Ordering::Relaxed);
-                        return Err(DeploymentModeError::ConfigurationError {
-                            message: format!("Command processing failed: {}", e),
-                        });
-                    }
-                    Err(e) => {
-                        error!(
-                            system_id = %self.system_id,
-                            msg_id = %msg_id,
-                            error = %e,
-                            "Failed to receive InitializeTaskFromMessageEvent command response"
-                        );
-                        self.statistics
-                            .events_failed
-                            .fetch_add(1, Ordering::Relaxed);
-                        return Err(DeploymentModeError::ConfigurationError {
-                            message: format!("Command response failed: {}", e),
-                        });
-                    }
-                }
+                self.send_command_and_await(
+                    |resp| OrchestrationCommand::FinalizeTaskFromMessageEvent {
+                        message_event,
+                        resp,
+                    },
+                    &msg_id,
+                    "FinalizeTaskFromMessageEvent",
+                    CommandOutcome::from_task_finalization_result,
+                )
+                .await?;
             }
 
             OrchestrationQueueEvent::Unknown { queue_name, .. } => {
@@ -1134,6 +550,233 @@ impl EventDrivenSystem for OrchestrationEventSystem {
 }
 
 impl OrchestrationEventSystem {
+    /// Create a queue listener with event processing loop.
+    ///
+    /// Shared setup for Hybrid and EventDrivenOnly deployment modes: creates the
+    /// notification channel, queue listener, and spawns the event processing loop.
+    /// Only the `channel_name` differs between modes.
+    async fn setup_listener_and_spawn_loop(
+        &mut self,
+        channel_name: &str,
+    ) -> Result<(), DeploymentModeError> {
+        let listener_config = self.listener_config();
+        // TAS-51: Use configured buffer size for event channel
+        let buffer_size = self
+            .context
+            .tasker_config
+            .orchestration
+            .as_ref()
+            .map(|o| o.mpsc_channels.event_systems.event_channel_buffer_size)
+            .unwrap_or(10000);
+        // TAS-133: Use ChannelFactory for type-safe channel creation
+        let (event_sender, mut event_receiver) =
+            ChannelFactory::orchestration_notification_channel(buffer_size as usize);
+
+        // TAS-51: Initialize channel monitor for observability
+        let channel_monitor = ChannelMonitor::new(channel_name, buffer_size as usize);
+
+        let mut queue_listener = OrchestrationQueueListener::new(
+            listener_config,
+            self.context.clone(),
+            event_sender,
+            channel_monitor.clone(),
+        )
+        .await?;
+
+        queue_listener.start().await?;
+        self.queue_listener = Some(queue_listener);
+
+        // Spawn event processing loop
+        let context = self.context.clone();
+        let command_sender = self.command_sender.clone();
+        let command_channel_monitor = self.command_channel_monitor.clone();
+        let statistics = self.statistics.clone();
+        let monitor = channel_monitor;
+
+        tokio::spawn(async move {
+            while let Some(notification) = event_receiver.recv().await {
+                // TAS-51: Record message receive for channel monitoring
+                monitor.record_receive();
+
+                Self::process_orchestration_notification(
+                    notification,
+                    &context,
+                    &command_sender,
+                    &command_channel_monitor,
+                    &statistics,
+                )
+                .await;
+            }
+        });
+
+        Ok(())
+    }
+
+    /// Create and start a fallback poller for polling/hybrid modes.
+    async fn setup_fallback_poller(&mut self) -> Result<(), DeploymentModeError> {
+        let poller_config = self.poller_config();
+        // TAS-133e: Removed pgmq_client param - now accessed via MessagingProvider
+        let fallback_poller = OrchestrationFallbackPoller::new(
+            poller_config,
+            self.context.clone(),
+            self.command_sender.clone(),
+        )
+        .await?;
+
+        fallback_poller.start().await?;
+        self.fallback_poller = Some(fallback_poller);
+        Ok(())
+    }
+
+    /// Send a command through the command channel and await its result.
+    ///
+    /// This helper eliminates the triplicated send-and-await pattern in `process_event`.
+    /// It handles: channel send with monitoring, response waiting, result classification
+    /// via `CommandOutcome`, stats tracking, and error propagation.
+    async fn send_command_and_await<T>(
+        &self,
+        build_command: impl FnOnce(
+            crate::orchestration::commands::CommandResponder<T>,
+        ) -> OrchestrationCommand,
+        msg_id: &(impl std::fmt::Display + ?Sized),
+        event_label: &str,
+        classify: impl FnOnce(&T) -> CommandOutcome,
+    ) -> Result<(), DeploymentModeError>
+    where
+        T: std::fmt::Debug,
+    {
+        let (command_tx, command_rx) = tokio::sync::oneshot::channel();
+        let command = build_command(command_tx);
+
+        // Send command with channel monitoring (TAS-51)
+        match self.command_sender.send(command).await {
+            Ok(_) => {
+                if self.command_channel_monitor.record_send_success() {
+                    self.command_channel_monitor
+                        .check_and_warn_saturation(self.command_sender.capacity());
+                }
+            }
+            Err(e) => {
+                error!(
+                    system_id = %self.system_id,
+                    msg_id = %msg_id,
+                    error = %e,
+                    "Failed to send {} command", event_label
+                );
+                self.statistics
+                    .events_failed
+                    .fetch_add(1, Ordering::Relaxed);
+                return Err(DeploymentModeError::ConfigurationError {
+                    message: format!("Failed to send orchestration command: {e}"),
+                });
+            }
+        }
+
+        // Wait for command processing result
+        match command_rx.await {
+            Ok(Ok(result)) => {
+                let outcome = classify(&result);
+                match &outcome {
+                    CommandOutcome::Success => {
+                        debug!(
+                            system_id = %self.system_id,
+                            msg_id = %msg_id,
+                            "{} completed successfully", event_label
+                        );
+                        self.statistics
+                            .operations_coordinated
+                            .fetch_add(1, Ordering::Relaxed);
+                    }
+                    CommandOutcome::Failed(error) => {
+                        warn!(
+                            system_id = %self.system_id,
+                            msg_id = %msg_id,
+                            error = %error,
+                            "{} failed", event_label
+                        );
+                        self.statistics
+                            .events_failed
+                            .fetch_add(1, Ordering::Relaxed);
+                        return Err(DeploymentModeError::ConfigurationError {
+                            message: format!("{event_label} failed: {error}"),
+                        });
+                    }
+                    CommandOutcome::Skipped(reason) => {
+                        debug!(
+                            system_id = %self.system_id,
+                            msg_id = %msg_id,
+                            reason = %reason,
+                            "{} skipped", event_label
+                        );
+                        self.statistics
+                            .operations_coordinated
+                            .fetch_add(1, Ordering::Relaxed);
+                    }
+                }
+                Ok(())
+            }
+            Ok(Err(e)) => {
+                error!(
+                    system_id = %self.system_id,
+                    msg_id = %msg_id,
+                    error = %e,
+                    "{} command processing failed", event_label
+                );
+                self.statistics
+                    .events_failed
+                    .fetch_add(1, Ordering::Relaxed);
+                Err(DeploymentModeError::ConfigurationError {
+                    message: format!("Command processing failed: {e}"),
+                })
+            }
+            Err(e) => {
+                error!(
+                    system_id = %self.system_id,
+                    msg_id = %msg_id,
+                    error = %e,
+                    "Failed to receive {} command response", event_label
+                );
+                self.statistics
+                    .events_failed
+                    .fetch_add(1, Ordering::Relaxed);
+                Err(DeploymentModeError::ConfigurationError {
+                    message: format!("Command response failed: {e}"),
+                })
+            }
+        }
+    }
+
+    /// Send a fire-and-forget command through the command channel.
+    ///
+    /// Creates a oneshot channel (receiver immediately dropped), sends the command,
+    /// and updates statistics. Used by `process_orchestration_notification` for
+    /// notification-driven command dispatch where no response is awaited.
+    async fn fire_and_forget_command<T>(
+        build_command: impl FnOnce(
+            crate::orchestration::commands::CommandResponder<T>,
+        ) -> OrchestrationCommand,
+        command_sender: &OrchestrationCommandSender,
+        command_channel_monitor: &ChannelMonitor,
+        statistics: &Arc<OrchestrationStatistics>,
+        label: &str,
+    ) {
+        let (resp_tx, _resp_rx) = tokio::sync::oneshot::channel();
+        match command_sender.send(build_command(resp_tx)).await {
+            Ok(_) => {
+                if command_channel_monitor.record_send_success() {
+                    command_channel_monitor.check_and_warn_saturation(command_sender.capacity());
+                }
+                statistics
+                    .operations_coordinated
+                    .fetch_add(1, Ordering::Relaxed);
+            }
+            Err(e) => {
+                warn!(error = %e, "Failed to send {} command", label);
+                statistics.events_failed.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+    }
+
     /// Process orchestration notifications from the queue listener
     async fn process_orchestration_notification(
         notification: OrchestrationNotification,
@@ -1145,16 +788,13 @@ impl OrchestrationEventSystem {
         match notification {
             OrchestrationNotification::StepResultWithPayload(queued_msg) => {
                 // TAS-133: RabbitMQ delivers full messages via push-based basic_consume()
-                // No fetch needed - the message payload is already available
                 let queue_name = queued_msg.queue_name().to_string();
 
-                // Parse Vec<u8> payload to serde_json::Value
                 let json_result: Result<serde_json::Value, _> =
                     serde_json::from_slice(&queued_msg.message);
 
                 match json_result {
                     Ok(json_value) => {
-                        // Use map to convert QueuedMessage<Vec<u8>> to QueuedMessage<serde_json::Value>
                         let json_message = queued_msg.map(|_| json_value);
 
                         info!(
@@ -1163,33 +803,17 @@ impl OrchestrationEventSystem {
                             "Processing RabbitMQ push message via ProcessStepResultFromMessage"
                         );
 
-                        // Send to actor system via ProcessStepResultFromMessage (has full payload)
-                        let (resp_tx, _resp_rx) = tokio::sync::oneshot::channel();
-                        match command_sender
-                            .send(OrchestrationCommand::ProcessStepResultFromMessage {
+                        Self::fire_and_forget_command(
+                            |resp| OrchestrationCommand::ProcessStepResultFromMessage {
                                 message: json_message,
-                                resp: resp_tx,
-                            })
-                            .await
-                        {
-                            Ok(_) => {
-                                if command_channel_monitor.record_send_success() {
-                                    command_channel_monitor
-                                        .check_and_warn_saturation(command_sender.capacity());
-                                }
-                                statistics
-                                    .operations_coordinated
-                                    .fetch_add(1, Ordering::Relaxed);
-                            }
-                            Err(e) => {
-                                warn!(
-                                    queue = %queue_name,
-                                    error = %e,
-                                    "Failed to send ProcessStepResultFromMessage command"
-                                );
-                                statistics.events_failed.fetch_add(1, Ordering::Relaxed);
-                            }
-                        }
+                                resp,
+                            },
+                            command_sender,
+                            command_channel_monitor,
+                            statistics,
+                            "ProcessStepResultFromMessage",
+                        )
+                        .await;
                     }
                     Err(e) => {
                         error!(
@@ -1204,124 +828,63 @@ impl OrchestrationEventSystem {
 
             OrchestrationNotification::Event(event) => match event {
                 OrchestrationQueueEvent::StepResult(message_event) => {
-                    // PGMQ signal-only: requires fetch by message ID
-                    let msg_id = message_event.message_id.clone();
-                    let namespace = message_event.namespace.clone();
-
                     debug!(
-                        msg_id = %msg_id,
-                        namespace = %namespace,
+                        msg_id = %message_event.message_id,
+                        namespace = %message_event.namespace,
                         "Processing step result event from orchestration queue (signal-only)"
                     );
 
-                    let (resp_tx, _resp_rx) = tokio::sync::oneshot::channel();
-
-                    match command_sender
-                        .send(OrchestrationCommand::ProcessStepResultFromMessageEvent {
+                    Self::fire_and_forget_command(
+                        |resp| OrchestrationCommand::ProcessStepResultFromMessageEvent {
                             message_event,
-                            resp: resp_tx,
-                        })
-                        .await
-                    {
-                        Ok(_) => {
-                            // TAS-51: Record send success and check saturation
-                            if command_channel_monitor.record_send_success() {
-                                command_channel_monitor
-                                    .check_and_warn_saturation(command_sender.capacity());
-                            }
-                            statistics
-                                .operations_coordinated
-                                .fetch_add(1, Ordering::Relaxed);
-                        }
-                        Err(e) => {
-                            warn!(
-                                msg_id = %msg_id,
-                                error = %e,
-                                "Failed to send ProcessStepResult command"
-                            );
-                            statistics.events_failed.fetch_add(1, Ordering::Relaxed);
-                        }
-                    }
+                            resp,
+                        },
+                        command_sender,
+                        command_channel_monitor,
+                        statistics,
+                        "ProcessStepResultFromMessageEvent",
+                    )
+                    .await;
                 }
 
                 OrchestrationQueueEvent::TaskRequest(message_event) => {
-                    let msg_id = message_event.message_id.clone();
-                    let namespace = message_event.namespace.clone();
                     debug!(
-                        msg_id = %msg_id,
-                        namespace = %namespace,
+                        msg_id = %message_event.message_id,
+                        namespace = %message_event.namespace,
                         "Processing task request event from orchestration queue"
                     );
 
-                    let (resp_tx, _resp_rx) = tokio::sync::oneshot::channel();
-
-                    match command_sender
-                        .send(OrchestrationCommand::InitializeTaskFromMessageEvent {
+                    Self::fire_and_forget_command(
+                        |resp| OrchestrationCommand::InitializeTaskFromMessageEvent {
                             message_event,
-                            resp: resp_tx,
-                        })
-                        .await
-                    {
-                        Ok(_) => {
-                            // TAS-51: Record send success and check saturation
-                            if command_channel_monitor.record_send_success() {
-                                command_channel_monitor
-                                    .check_and_warn_saturation(command_sender.capacity());
-                            }
-                            statistics
-                                .operations_coordinated
-                                .fetch_add(1, Ordering::Relaxed);
-                        }
-                        Err(e) => {
-                            warn!(
-                                msg_id = %msg_id,
-                                namespace = %namespace,
-                                error = %e,
-                                "Failed to send InitializeTaskFromMessageEvent command"
-                            );
-                            statistics.events_failed.fetch_add(1, Ordering::Relaxed);
-                        }
-                    }
+                            resp,
+                        },
+                        command_sender,
+                        command_channel_monitor,
+                        statistics,
+                        "InitializeTaskFromMessageEvent",
+                    )
+                    .await;
                 }
 
                 OrchestrationQueueEvent::TaskFinalization(message_event) => {
-                    let msg_id = message_event.message_id.clone();
-                    let namespace = message_event.namespace.clone();
                     debug!(
-                        msg_id = %msg_id,
-                        namespace = %namespace,
+                        msg_id = %message_event.message_id,
+                        namespace = %message_event.namespace,
                         "Processing task finalization event from orchestration queue"
                     );
 
-                    let (resp_tx, _resp_rx) = tokio::sync::oneshot::channel();
-
-                    match command_sender
-                        .send(OrchestrationCommand::FinalizeTaskFromMessageEvent {
+                    Self::fire_and_forget_command(
+                        |resp| OrchestrationCommand::FinalizeTaskFromMessageEvent {
                             message_event,
-                            resp: resp_tx,
-                        })
-                        .await
-                    {
-                        Ok(_) => {
-                            // TAS-51: Record send success and check saturation
-                            if command_channel_monitor.record_send_success() {
-                                command_channel_monitor
-                                    .check_and_warn_saturation(command_sender.capacity());
-                            }
-                            statistics
-                                .operations_coordinated
-                                .fetch_add(1, Ordering::Relaxed);
-                        }
-                        Err(e) => {
-                            warn!(
-                                msg_id = %msg_id,
-                                namespace = %namespace,
-                                error = %e,
-                                "Failed to send FinalizeTaskFromMessageEvent command"
-                            );
-                            statistics.events_failed.fetch_add(1, Ordering::Relaxed);
-                        }
-                    }
+                            resp,
+                        },
+                        command_sender,
+                        command_channel_monitor,
+                        statistics,
+                        "FinalizeTaskFromMessageEvent",
+                    )
+                    .await;
                 }
 
                 OrchestrationQueueEvent::Unknown { queue_name, .. } => {
@@ -1343,7 +906,6 @@ impl OrchestrationEventSystem {
 
             OrchestrationNotification::Reconnected => {
                 info!("Orchestration queue listener reconnected successfully");
-                // Could reset error counters or adjust health metrics here
             }
         }
 

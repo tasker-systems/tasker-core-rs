@@ -1,8 +1,10 @@
 # Coverage Analysis: tasker-orchestration
 
-**Current Coverage**: 31.60% line (11,790 / 37,306), 28.57% function (1,509 / 5,282)
+**Current Coverage**: 35.70% line, 32.59% function (as of Jan 30, 2026 — 648 tests)
+**Baseline Coverage**: 31.60% line (11,790 / 37,306), 28.57% function (1,509 / 5,282)
 **Target**: 55%
-**Gap**: 23.4 percentage points (approximately 8,728 additional lines need coverage)
+**Gap**: 19.3 percentage points remaining (was 23.4 pp at baseline)
+**Progress**: +4.10 pp line coverage, +224 tests added (183 unit + 41 integration)
 
 ---
 
@@ -373,11 +375,12 @@ Extend coverage on already-partially-covered modules, targeting the 55-85% range
 
 | Phase | Focus | Estimated Lines Added | Coverage Delta | Cumulative Coverage |
 |-------|-------|-----------------------|----------------|---------------------|
-| Current | -- | -- | -- | 31.6% |
-| Phase 1 | Critical path correctness | ~2,528 | +7.0 pp | ~38.6% |
-| Phase 2 | Reliability and API layer | ~2,369 | +6.5 pp | ~45.1% |
-| Phase 3 | Depth and completeness | ~1,700 | +4.5 pp | ~49.6% |
-| Phase 4 | Final push to target | ~2,131 | +5.4 pp | ~55.0% |
+| Baseline | -- | -- | -- | 31.6% |
+| **Completed** | **Unit tests + integration tests** | **1,228 integration + inline unit** | **+4.10 pp** | **35.70%** |
+| Phase 1 (remaining) | Critical path correctness (refactoring + tests) | ~2,000 | +5.0 pp | ~40.7% |
+| Phase 2 | Reliability and API layer | ~2,369 | +6.5 pp | ~47.2% |
+| Phase 3 | Depth and completeness | ~1,700 | +4.5 pp | ~51.7% |
+| Phase 4 | Final push to target | ~1,500 | +3.3 pp | ~55.0% |
 
 **Key constraints**:
 - Many critical modules (state_manager, viable_step_discovery, hydration, result processing) require a live database connection for meaningful integration tests, since they use `sqlx::query!` macros and SQL function calls.
@@ -385,5 +388,23 @@ Extend coverage on already-partially-covered modules, targeting the 55-85% range
 - gRPC tests can be split: pure conversion tests (no infrastructure) and service tests (tonic test server).
 - The bootstrap module is particularly challenging to test in isolation because it wires together the entire system; partial mocking or feature-flag-based test configurations may be needed.
 - Many modules already have `#[cfg(test)]` blocks with inline tests. Extending these is often more efficient than adding new test files, since the test infrastructure (imports, helper functions) is already in place.
+- **The next phase should focus on refactoring large files to extract testable units.** Files like `command_processor_actor.rs` (1001 lines) and `orchestration_event_system.rs` (1359 lines) resist external testing due to tight coupling. Extracting pure functions, strategy objects, or smaller methods will unlock coverage more effectively than adding more integration tests at the current architecture.
 
-**Files with existing inline tests (69 files)**: The presence of `#[cfg(test)]` in 69 of 133 source files indicates a strong inline testing culture. Gaps are concentrated in the orchestration core infrastructure, result processing pipeline, gRPC layer, and the newer TAS-41/TAS-53/TAS-59 features.
+**Files with existing inline tests (83+ files)**: The presence of `#[cfg(test)]` in 83+ of 133 source files (up from 69 at baseline) reflects the unit test additions in the completed phase. Remaining gaps are concentrated in the orchestration core infrastructure, result processing pipeline, and the newer TAS-41/TAS-53/TAS-59 features.
+
+### Completed Work (Jan 30, 2026)
+
+**Unit test phase** added 183 inline tests across 14 source files covering error types, type conversions, channel wrappers, command types, middleware helpers, and service error classification. This provided +3.91 pp coverage.
+
+**Integration test phase** added 41 `#[sqlx::test]` tests across 4 new test files (`task_query_service_tests.rs`, `step_query_service_tests.rs`, `template_query_service_tests.rs`, `analytics_service_tests.rs`). These validate database query services, template discovery, analytics SQL functions, and response transformation against real PostgreSQL. This provided +0.19 pp coverage.
+
+Key modules now covered that were previously at 0%:
+- `TaskQueryService` — get_task_with_context, list_tasks_with_context, to_task_response
+- `StepQueryService` — list_steps_for_task, get_step_with_readiness, audit history, ownership verification
+- `TemplateQueryService` — list_templates, get_template, template_exists, get_namespace
+- `AnalyticsQueryService` — performance metrics and bottleneck analysis from live database
+- `grpc/conversions.rs` — 28 proto-to-domain conversion tests
+- `orchestration/errors.rs` — 10 From trait conversion tests
+- `orchestration/backoff_calculator.rs` — 18 configuration and calculation tests
+- `orchestration/error_handling_service.rs` — 9 action/result tests
+- `orchestration/state_manager.rs` — 20 transition request/outcome tests

@@ -5565,7 +5565,6 @@ dependencies = [
  "config",
  "criterion",
  "crossbeam",
- "dashmap",
  "dotenvy",
  "fastrand",
  "futures",

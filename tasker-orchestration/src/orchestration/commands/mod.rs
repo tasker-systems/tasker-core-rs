@@ -6,6 +6,7 @@
 pub mod types;
 
 pub use types::{
-    CommandResponder, OrchestrationCommand, OrchestrationProcessingStats, StepProcessResult,
-    SystemHealth, TaskFinalizationResult, TaskInitializeResult, TaskReadinessResult,
+    AtomicProcessingStats, CommandResponder, OrchestrationCommand, OrchestrationProcessingStats,
+    StepProcessResult, SystemHealth, TaskFinalizationResult, TaskInitializeResult,
+    TaskReadinessResult,
 };

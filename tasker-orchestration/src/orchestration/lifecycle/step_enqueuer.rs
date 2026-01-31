@@ -41,9 +41,7 @@
 //! # }
 //! ```
 
-use crate::orchestration::{
-    state_manager::StateManager, viable_step_discovery::ViableStepDiscovery,
-};
+use crate::orchestration::viable_step_discovery::ViableStepDiscovery;
 use opentelemetry::KeyValue;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -102,21 +100,18 @@ pub struct StepEnqueuer {
     viable_step_discovery: ViableStepDiscovery,
     context: Arc<SystemContext>,
     config: StepEnqueuerConfig,
-    state_manager: StateManager,
 }
 
 impl StepEnqueuer {
     /// Create a new step enqueuer instance (backward compatibility with standard client)
     pub async fn new(context: Arc<SystemContext>) -> TaskerResult<Self> {
         let viable_step_discovery = ViableStepDiscovery::new(context.clone());
-        let state_manager = StateManager::new(context.clone());
         // Use From<Arc<TaskerConfig>> implementation (V2 config is canonical)
         let config: StepEnqueuerConfig = context.tasker_config.clone().into();
         Ok(Self {
             viable_step_discovery,
             context,
             config,
-            state_manager,
         })
     }
 
@@ -324,11 +319,7 @@ impl StepEnqueuer {
         // Transition task to "in_progress" state if we successfully enqueued any steps
         // Note: claiming only sets claimed_at/claimed_by but doesn't change execution state
         if steps_enqueued > 0 {
-            if let Err(e) = self
-                .state_manager
-                .mark_task_in_progress(task_info.task_uuid)
-                .await
-            {
+            if let Err(e) = self.mark_task_in_progress(task_info.task_uuid).await {
                 error!(
                     correlation_id = %correlation_id,
                     task_uuid = %task_info.task_uuid,
@@ -518,8 +509,7 @@ impl StepEnqueuer {
         // receive the notification. Previously, tasker-pgmq was so fast that workers would
         // receive notifications before the orchestration transaction committed, causing
         // duplicate key constraint violations when both tried to create transition records.
-        self.state_manager
-            .mark_step_enqueued(viable_step.step_uuid)
+        self.mark_step_enqueued(viable_step.step_uuid)
             .await
             .map_err(|e| {
                 error!(
@@ -678,6 +668,82 @@ impl StepEnqueuer {
                 "Task {task_uuid} not found"
             ))),
         }
+    }
+
+    /// Mark step as enqueued — transitions pending → enqueued
+    ///
+    /// Loads the step from the database, creates a state machine, and transitions
+    /// with `StepEvent::Enqueue`. This must complete before the message is sent to
+    /// the queue to avoid race conditions with workers (TAS-29 Phase 5.4).
+    async fn mark_step_enqueued(&self, step_uuid: Uuid) -> TaskerResult<()> {
+        let workflow_step = WorkflowStep::find_by_id(self.context.database_pool(), step_uuid)
+            .await
+            .map_err(|e| {
+                TaskerError::DatabaseError(format!(
+                    "Failed to find step {step_uuid} for enqueue transition: {e}"
+                ))
+            })?
+            .ok_or_else(|| {
+                TaskerError::DatabaseError(format!(
+                    "Step {step_uuid} not found for enqueue transition"
+                ))
+            })?;
+
+        let mut step_state_machine = StepStateMachine::new(workflow_step, self.context.clone());
+
+        step_state_machine
+            .transition(StepEvent::Enqueue)
+            .await
+            .map_err(|e| {
+                TaskerError::StateTransitionError(format!(
+                    "Failed to transition step {step_uuid} to enqueued: {e}"
+                ))
+            })?;
+
+        debug!(step_uuid = %step_uuid, "Marked step as enqueued");
+        Ok(())
+    }
+
+    /// Verify task is in a valid active state after steps have been enqueued
+    ///
+    /// Loads the task from the database and checks its current state. The task
+    /// lifecycle is managed by the initialization and finalization components,
+    /// so this method only verifies the task is in an expected active state.
+    async fn mark_task_in_progress(&self, task_uuid: Uuid) -> TaskerResult<()> {
+        use tasker_shared::models::Task;
+        use tasker_shared::state_machine::task_state_machine::TaskStateMachine;
+
+        let task = Task::find_by_id(self.context.database_pool(), task_uuid)
+            .await
+            .map_err(|e| {
+                TaskerError::DatabaseError(format!(
+                    "Failed to find task {task_uuid} for state check: {e}"
+                ))
+            })?
+            .ok_or_else(|| {
+                TaskerError::DatabaseError(format!("Task {task_uuid} not found for state check"))
+            })?;
+
+        let task_state_machine = TaskStateMachine::new(task, self.context.clone());
+        let current_state = task_state_machine.current_state().await.map_err(|e| {
+            TaskerError::StateTransitionError(format!("Failed to get task {task_uuid} state: {e}"))
+        })?;
+
+        if current_state.is_active() {
+            debug!(
+                task_uuid = %task_uuid,
+                current_state = %current_state,
+                "Task already in active state"
+            );
+        } else {
+            debug!(
+                task_uuid = %task_uuid,
+                current_state = %current_state,
+                "Task state check complete — lifecycle manages transitions"
+            );
+        }
+
+        Ok(())
     }
 
     /// Get current configuration

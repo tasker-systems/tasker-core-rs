@@ -129,3 +129,104 @@ Single test file, no subdirectories.
 Tests that exist on disk but aren't wired into the build system are worse than no tests at all. They create a false sense of coverage, accumulate code rot silently, and when finally discovered, require significant effort to rehabilitate. The Rust compiler's module system makes this particularly easy to get wrong with integration tests — subdirectories in `tests/` look like they should work but don't without explicit wiring.
 
 **Prevention**: Any PR that adds a new `tests/` subdirectory should be verified with `cargo nextest list` to confirm the new tests actually appear in the test count.
+
+---
+
+## tasker-orchestration Coverage Improvement (January 30, 2026)
+
+### Starting Point
+
+The tasker-orchestration crate was at 31.60% line coverage (28.56% function) with 424 tests. The original analysis (`analysis-tasker-orchestration.md`) identified a 23.4 percentage point gap to the 55% target, with gaps concentrated in orchestration core infrastructure, result processing, gRPC, and the actor system.
+
+### Structural Fix: tests/mod.rs Cleanup
+
+Applied the recommended fix from the tasker-shared orphan audit: renamed `tests/mod.rs` to `tests/orchestration_tests.rs` with `#[path]` attributes for subdirectory modules. Also removed the obsolete `tests/triggers/` directory that tested deprecated PostgreSQL LISTEN/NOTIFY infrastructure (replaced by PGMQ in TAS-41). These trigger tests referenced columns and schemas that no longer exist. Test count went from 431 to 424 (7 duplicate tests eliminated, 7 obsolete tests removed).
+
+### Phase 1: Inline Unit Tests (424 → 607 tests)
+
+Added `#[cfg(test)]` unit test modules to source files that had zero or minimal test coverage. These tests require no database — they validate error types, type conversions, data structures, and pure functions.
+
+| Source File | Tests Added | What Was Tested |
+|-------------|-------------|-----------------|
+| `orchestration/errors.rs` | 10 | From trait implementations (FinalizationError, BackoffError → OrchestrationError) |
+| `orchestration/backoff_calculator.rs` | 18 | BackoffConfig defaults, BackoffContext builder, retry-after extraction, BackoffResult construction |
+| `orchestration/error_handling_service.rs` | 9 | ErrorHandlingConfig, ErrorHandlingResult, ErrorHandlingAction variants, serialization |
+| `orchestration/state_manager.rs` | 20 | StateTransitionRequest construction, TransitionOutcome variants, health summary |
+| `grpc/conversions.rs` | 28 | Proto-to-domain type conversions (task states, step states, UUID parsing, JSON helpers) |
+| `orchestration/hydration/finalization_hydrator.rs` | 14 | UUID extraction from PgmqMessage and QueuedMessage (valid, missing, invalid, null, numeric, empty) |
+| `orchestration/hydration/task_request_hydrator.rs` | 12 | TaskRequestMessage parsing from queue messages (valid, invalid format, context/metadata preservation) |
+| `web/middleware/operational_state.rs` | 10 | `is_health_or_metrics_endpoint` path matching (health, metrics, ready, live, API paths) |
+| `web/middleware/request_id.rs` | 5 | RequestId struct (creation, as_str, clone, debug) |
+| `orchestration/commands/types.rs` | 24 | All result types (TaskInitializeResult, StepProcessResult, TaskReadinessResult, TaskFinalizationResult, OrchestrationProcessingStats, SystemHealth) |
+| `services/task_service.rs` | 13 | Error Display messages, is_client_error classification |
+| `services/step_service.rs` | 10 | Error Display messages, From<StepQueryError> conversion |
+| `api_common/operational_status.rs` | 6 | DatabasePoolUsageStats, OrchestrationStatus construction/clone/debug |
+| `orchestration/channels.rs` | 14 (expanded from 3) | Notification/command channel send/recv/capacity/close, From conversions, ChannelFactory |
+
+**Coverage after Phase 1**: 35.51% line / 32.46% function (+3.91 pp line / +3.90 pp function)
+
+### Phase 2: Database Integration Tests (607 → 648 tests)
+
+Added `#[sqlx::test]` integration tests in `tests/services/` that exercise query services and analytics against real PostgreSQL. Each test gets an isolated database transaction that rolls back automatically.
+
+| Test File | Tests Added | Service Tested | Lines in Source |
+|-----------|-------------|----------------|-----------------|
+| `task_query_service_tests.rs` | 11 | `TaskQueryService` — get_task_with_context, list_tasks_with_context, to_task_response | 278 (was 0 tests) |
+| `step_query_service_tests.rs` | 15 | `StepQueryService` — list_steps_for_task, get_step_with_readiness, audit history, ownership checks, to_step_response | 213 (was 0 tests) |
+| `template_query_service_tests.rs` | 11 | `TemplateQueryService` — list_templates, get_template, template_exists, get_namespace | 342 (was 3 error-only tests) |
+| `analytics_service_tests.rs` | 8 | `AnalyticsQueryService` + `AnalyticsService` — performance metrics, bottleneck analysis, cache-aside delegation | 243+250 (was unit-only) |
+
+**Integration test setup pattern** (consistent across all service tests):
+
+```rust
+async fn setup_services(pool: PgPool) -> Result<(ServiceUnderTest, TaskInitializer)> {
+    let registry = TaskHandlerRegistry::new(pool.clone());
+    registry.discover_and_register_templates(&fixture_path()).await?;
+    let system_context = Arc::new(SystemContext::with_pool(pool.clone()).await?);
+    let step_enqueuer = Arc::new(StepEnqueuerService::new(system_context.clone()).await?);
+    let task_initializer = TaskInitializer::new(system_context, step_enqueuer);
+    let service = ServiceUnderTest::new(pool);
+    Ok((service, task_initializer))
+}
+```
+
+**Coverage after Phase 2**: 35.70% line / 32.59% function (+0.19 pp line / +0.13 pp function)
+
+### Coverage Progression Summary
+
+| Phase | Tests | Line Coverage | Function Coverage | Delta (Line) |
+|-------|-------|---------------|-------------------|--------------|
+| Baseline | 424 | 31.60% | 28.56% | — |
+| After structural fix | 424 | 31.60% | 28.56% | 0.00 pp |
+| After unit tests | 607 | 35.51% | 32.46% | +3.91 pp |
+| After integration tests | 648 | 35.70% | 32.59% | +0.19 pp |
+| **Total improvement** | **+224** | **+4.10 pp** | **+4.03 pp** | — |
+
+### Key Observations
+
+**Unit tests provided 95% of the coverage lift.** The 183 unit tests added +3.91 pp while the 41 integration tests added only +0.19 pp. This is because:
+
+1. **Unit tests cover code directly.** An inline `#[cfg(test)]` module in `backoff_calculator.rs` exercises the same file's functions directly. Coverage tools attribute every executed line to its source file.
+
+2. **Integration tests have diminishing returns for already-tested code paths.** The query services (TaskQueryService, StepQueryService) were already partially exercised by the existing TaskService and StepService integration tests that delegate to them. Adding direct tests validates the query service API contract but doesn't illuminate many new source lines.
+
+3. **Integration tests are valuable for correctness, not just coverage.** The 41 `#[sqlx::test]` tests validate real SQL function execution, ownership checking, pagination, and error classification against PostgreSQL — none of which unit tests can verify. They caught a real issue where `to_step_response` fallback behavior with `readiness: None` needed validation.
+
+**Remaining coverage gap is dominated by infrastructure-heavy modules.** The analysis shows the largest untested files are:
+- `command_processor_actor.rs` (574 coverable lines, 18.6%) — requires full actor system
+- `orchestration_event_system.rs` (370 lines, 0%) — requires messaging infrastructure
+- `bootstrap.rs` (444 lines, 9.7%) — wires entire system together
+- `viable_step_discovery.rs` (342 lines, 7.3%) — SQL-driven, needs database fixtures
+- `state_manager.rs` (442 lines, 17.4%) — coordinates SQL functions with state machines
+
+These modules require either: (a) decomposing large functions into testable units, or (b) complex integration test infrastructure with messaging backends. The next phase of work should focus on **refactoring large files to extract testable logic** before writing more tests.
+
+### Lessons for Future Coverage Work
+
+1. **Start with unit tests.** They provide the best coverage-per-effort ratio. Look for files with `0%` coverage that contain enums, error types, type conversions, builder patterns, or pure functions.
+
+2. **Integration tests complement, not replace, unit tests.** Write integration tests to validate database interactions, ownership checks, and SQL function correctness — not to inflate coverage numbers.
+
+3. **The `#[sqlx::test]` pattern is excellent.** Automatic migration, transaction isolation, and pool injection make database tests as easy to write as unit tests. The `fixture_path()` + `TaskHandlerRegistry::discover_and_register_templates()` pattern provides repeatable template setup.
+
+4. **Coverage ceilings exist for un-refactored code.** Files like `command_processor_actor.rs` at 1001 lines have complex control flow that resists testing from the outside. Refactoring to extract testable units (strategy pattern, pure functions, smaller methods) will unlock more coverage than adding more integration tests.

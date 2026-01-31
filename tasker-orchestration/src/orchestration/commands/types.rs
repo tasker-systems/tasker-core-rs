@@ -24,7 +24,7 @@
 //! - `MessageEvent`: Signal-only notification for PGMQ large message flow
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::sync::oneshot;
 use uuid::Uuid;
 
@@ -165,14 +165,45 @@ pub enum TaskFinalizationResult {
     },
 }
 
+/// Serializable snapshot of orchestration processing statistics
+///
+/// This is the API-facing type returned by `GetProcessingStats` commands.
+/// For lock-free hot-path counting, see `AtomicProcessingStats`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OrchestrationProcessingStats {
     pub task_requests_processed: u64,
     pub step_results_processed: u64,
     pub tasks_finalized: u64,
-    pub tasks_ready_processed: u64, // TAS-43: Task readiness events processed
+    pub tasks_ready_processed: u64,
     pub processing_errors: u64,
-    pub current_queue_sizes: HashMap<String, i64>,
+}
+
+/// Lock-free statistics tracker for orchestration command processing
+///
+/// Uses `AtomicU64` counters for SWMR (Single Writer, Multiple Reader) access.
+/// The command processor loop is the single writer; health checks and API
+/// responses read via `snapshot()` which produces a serializable
+/// `OrchestrationProcessingStats`.
+#[derive(Debug, Default)]
+pub struct AtomicProcessingStats {
+    pub(crate) task_requests_processed: AtomicU64,
+    pub(crate) step_results_processed: AtomicU64,
+    pub(crate) tasks_finalized: AtomicU64,
+    pub(crate) tasks_ready_processed: AtomicU64,
+    pub(crate) processing_errors: AtomicU64,
+}
+
+impl AtomicProcessingStats {
+    /// Create a serializable snapshot of current statistics
+    pub fn snapshot(&self) -> OrchestrationProcessingStats {
+        OrchestrationProcessingStats {
+            task_requests_processed: self.task_requests_processed.load(Ordering::Relaxed),
+            step_results_processed: self.step_results_processed.load(Ordering::Relaxed),
+            tasks_finalized: self.tasks_finalized.load(Ordering::Relaxed),
+            tasks_ready_processed: self.tasks_ready_processed.load(Ordering::Relaxed),
+            processing_errors: self.processing_errors.load(Ordering::Relaxed),
+        }
+    }
 }
 
 /// TAS-75: Enhanced system health status
@@ -409,23 +440,17 @@ mod tests {
 
     #[test]
     fn test_orchestration_processing_stats_construction() {
-        let mut queue_sizes = HashMap::new();
-        queue_sizes.insert("task_requests".to_string(), 42i64);
-        queue_sizes.insert("step_results".to_string(), 100i64);
-
         let stats = OrchestrationProcessingStats {
             task_requests_processed: 1000,
             step_results_processed: 5000,
             tasks_finalized: 800,
             tasks_ready_processed: 1200,
             processing_errors: 10,
-            current_queue_sizes: queue_sizes,
         };
 
         assert_eq!(stats.task_requests_processed, 1000);
         assert_eq!(stats.step_results_processed, 5000);
         assert_eq!(stats.processing_errors, 10);
-        assert_eq!(stats.current_queue_sizes.len(), 2);
     }
 
     #[test]
@@ -436,13 +461,40 @@ mod tests {
             tasks_finalized: 0,
             tasks_ready_processed: 0,
             processing_errors: 0,
-            current_queue_sizes: HashMap::new(),
         };
 
         let json = serde_json::to_string(&stats).unwrap();
         let deserialized: OrchestrationProcessingStats = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.task_requests_processed, 0);
-        assert!(deserialized.current_queue_sizes.is_empty());
+    }
+
+    // --- AtomicProcessingStats ---
+
+    #[test]
+    fn test_atomic_processing_stats_default() {
+        let stats = AtomicProcessingStats::default();
+        let snapshot = stats.snapshot();
+        assert_eq!(snapshot.task_requests_processed, 0);
+        assert_eq!(snapshot.step_results_processed, 0);
+        assert_eq!(snapshot.tasks_finalized, 0);
+        assert_eq!(snapshot.tasks_ready_processed, 0);
+        assert_eq!(snapshot.processing_errors, 0);
+    }
+
+    #[test]
+    fn test_atomic_processing_stats_increment_and_snapshot() {
+        let stats = AtomicProcessingStats::default();
+        stats
+            .task_requests_processed
+            .fetch_add(5, std::sync::atomic::Ordering::Relaxed);
+        stats
+            .processing_errors
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+        let snapshot = stats.snapshot();
+        assert_eq!(snapshot.task_requests_processed, 5);
+        assert_eq!(snapshot.processing_errors, 1);
+        assert_eq!(snapshot.step_results_processed, 0);
     }
 
     // --- SystemHealth ---

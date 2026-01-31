@@ -255,9 +255,6 @@ impl ViableStepDiscovery {
         _task_handler_registry: &tasker_shared::registry::TaskHandlerRegistry,
     ) -> OrchestrationResult<Vec<tasker_shared::messaging::execution_types::StepExecutionRequest>>
     {
-        use tasker_shared::messaging::execution_types::{
-            StepExecutionRequest, StepRequestMetadata,
-        };
         use tasker_shared::models::core::task::Task;
 
         if viable_steps.is_empty() {
@@ -324,56 +321,17 @@ impl ViableStepDiscovery {
             "Found task template for handler configuration"
         );
 
+        let task_label = format!(
+            "{}/{}/{}",
+            task_for_orchestration.namespace_name,
+            task_for_orchestration.task_name,
+            task_for_orchestration.task_version
+        );
+
         let mut execution_requests = Vec::with_capacity(viable_steps_filtered.len());
 
         for step in viable_steps_filtered {
-            debug!(
-                task_uuid = %task_uuid,
-                step_uuid = %step.step_uuid,
-                step_name = %step.name,
-                "Building execution request for step"
-            );
-
-            // 3. Load step template configuration (fail-fast if not found)
-            let step_template = task_template
-                .steps
-                .iter()
-                .find(|st| st.name == step.name)
-                .ok_or_else(|| DiscoveryError::ConfigurationError {
-                    entity_type: "step_template".to_string(),
-                    entity_id: format!(
-                        "{} (in task {}/{}/{})",
-                        step.name,
-                        task_for_orchestration.namespace_name,
-                        task_for_orchestration.task_name,
-                        task_for_orchestration.task_version
-                    ),
-                    reason: "Step template not found in task configuration".to_string(),
-                })?;
-
-            debug!(
-                step_uuid = %step.step_uuid,
-                handler_callable = %step_template.handler.callable,
-                "Found step template configuration"
-            );
-
-            let handler_class = step_template.handler.callable.clone();
-            let handler_config: std::collections::HashMap<String, serde_json::Value> =
-                step_template
-                    .handler
-                    .initialization
-                    .iter()
-                    .map(|(k, v)| (k.clone(), v.clone()))
-                    .collect();
-            let timeout_ms = step_template
-                .handler
-                .initialization
-                .get("timeout_ms")
-                .and_then(|v| v.as_u64())
-                .or_else(|| step_template.timeout_seconds.map(|t| t as u64 * 1000))
-                .unwrap_or(30000u64);
-
-            // 4. Load previous step results (dependencies)
+            // Load previous step results (dependencies) — async DB call stays in caller
             let previous_results = self
                 .load_step_dependencies(step.step_uuid)
                 .await
@@ -385,26 +343,14 @@ impl ViableStepDiscovery {
                 "Loaded step dependency results"
             );
 
-            // 5. Build the execution request with all context
-            let request = StepExecutionRequest {
-                step_uuid: step.step_uuid,
+            let request = build_single_execution_request(
+                step,
                 task_uuid,
-                step_name: step.name.clone(),
-                handler_class,
-                handler_config,
-                task_context: task_for_orchestration
-                    .task
-                    .context
-                    .clone()
-                    .unwrap_or(serde_json::json!({})),
+                &task_label,
+                task_for_orchestration.task.context.as_ref(),
+                &task_template,
                 previous_results,
-                metadata: StepRequestMetadata {
-                    attempt: step.attempts as i32,
-                    max_attempts: step.max_attempts as i32,
-                    timeout_ms: timeout_ms as i64,
-                    created_at: chrono::Utc::now(),
-                },
-            };
+            )?;
 
             execution_requests.push(request);
         }
@@ -552,6 +498,79 @@ impl ViableStepDiscovery {
     }
 }
 
+/// Build a single step execution request from pre-loaded context.
+///
+/// Pure function extracting the per-step logic from `build_step_execution_requests`:
+/// template lookup, handler configuration extraction, timeout resolution, and
+/// request construction. The async dependency loading stays in the caller.
+///
+/// # Timeout Resolution
+///
+/// Timeout is resolved with a three-level fallback:
+/// 1. `handler.initialization.timeout_ms` (explicit override)
+/// 2. `step_template.timeout_seconds * 1000` (template-level)
+/// 3. `30000ms` (system default)
+fn build_single_execution_request(
+    step: &ViableStep,
+    task_uuid: Uuid,
+    task_label: &str,
+    task_context: Option<&serde_json::Value>,
+    task_template: &tasker_shared::models::core::task_template::TaskTemplate,
+    previous_results: std::collections::HashMap<String, StepExecutionResult>,
+) -> OrchestrationResult<tasker_shared::messaging::execution_types::StepExecutionRequest> {
+    use tasker_shared::messaging::execution_types::{StepExecutionRequest, StepRequestMetadata};
+
+    // Find step template configuration (fail-fast if not found)
+    let step_template = task_template
+        .steps
+        .iter()
+        .find(|st| st.name == step.name)
+        .ok_or_else(|| DiscoveryError::ConfigurationError {
+            entity_type: "step_template".to_string(),
+            entity_id: format!("{} (in task {})", step.name, task_label),
+            reason: "Step template not found in task configuration".to_string(),
+        })?;
+
+    debug!(
+        step_uuid = %step.step_uuid,
+        handler_callable = %step_template.handler.callable,
+        "Found step template configuration"
+    );
+
+    let handler_class = step_template.handler.callable.clone();
+    let handler_config: std::collections::HashMap<String, serde_json::Value> = step_template
+        .handler
+        .initialization
+        .iter()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+
+    // Timeout resolution: initialization.timeout_ms > timeout_seconds > 30000ms default
+    let timeout_ms = step_template
+        .handler
+        .initialization
+        .get("timeout_ms")
+        .and_then(|v| v.as_u64())
+        .or_else(|| step_template.timeout_seconds.map(|t| t as u64 * 1000))
+        .unwrap_or(30000u64);
+
+    Ok(StepExecutionRequest {
+        step_uuid: step.step_uuid,
+        task_uuid,
+        step_name: step.name.clone(),
+        handler_class,
+        handler_config,
+        task_context: task_context.cloned().unwrap_or(serde_json::json!({})),
+        previous_results,
+        metadata: StepRequestMetadata {
+            attempt: step.attempts as i32,
+            max_attempts: step.max_attempts as i32,
+            timeout_ms: timeout_ms as i64,
+            created_at: chrono::Utc::now(),
+        },
+    })
+}
+
 /// Summary of task readiness status for monitoring
 #[derive(Debug, Clone)]
 pub struct TaskReadinessSummary {
@@ -578,5 +597,354 @@ impl TaskReadinessSummary {
     /// Check if task has failures
     pub fn has_failures(&self) -> bool {
         self.failed_steps > 0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_summary(
+        total: usize,
+        ready: usize,
+        complete: usize,
+        blocked: usize,
+        failed: usize,
+    ) -> TaskReadinessSummary {
+        TaskReadinessSummary {
+            task_uuid: Uuid::now_v7(),
+            total_steps: total,
+            ready_steps: ready,
+            complete_steps: complete,
+            blocked_steps: blocked,
+            failed_steps: failed,
+            progress_percentage: if total > 0 {
+                ((complete * 100) / total) as u8
+            } else {
+                0
+            },
+        }
+    }
+
+    // --- is_complete ---
+
+    #[test]
+    fn test_is_complete_all_done() {
+        let summary = make_summary(5, 0, 5, 0, 0);
+        assert!(summary.is_complete());
+    }
+
+    #[test]
+    fn test_is_complete_none_done() {
+        let summary = make_summary(5, 3, 0, 2, 0);
+        assert!(!summary.is_complete());
+    }
+
+    #[test]
+    fn test_is_complete_zero_total() {
+        // Zero total steps means not complete (guard against division-by-zero-style bugs)
+        let summary = make_summary(0, 0, 0, 0, 0);
+        assert!(!summary.is_complete());
+    }
+
+    #[test]
+    fn test_is_complete_partial() {
+        let summary = make_summary(5, 1, 3, 1, 0);
+        assert!(!summary.is_complete());
+    }
+
+    // --- is_blocked ---
+
+    #[test]
+    fn test_is_blocked_no_ready_and_incomplete() {
+        let summary = make_summary(5, 0, 2, 3, 0);
+        assert!(summary.is_blocked());
+    }
+
+    #[test]
+    fn test_is_blocked_has_ready_steps() {
+        let summary = make_summary(5, 2, 1, 2, 0);
+        assert!(!summary.is_blocked());
+    }
+
+    #[test]
+    fn test_is_blocked_all_complete() {
+        // All complete means complete_steps == total_steps, so not blocked
+        let summary = make_summary(5, 0, 5, 0, 0);
+        assert!(!summary.is_blocked());
+    }
+
+    #[test]
+    fn test_is_blocked_zero_total() {
+        // Zero total: ready_steps == 0 && complete_steps (0) < total_steps (0) is false
+        let summary = make_summary(0, 0, 0, 0, 0);
+        assert!(!summary.is_blocked());
+    }
+
+    // --- has_failures ---
+
+    #[test]
+    fn test_has_failures_some() {
+        let summary = make_summary(5, 1, 2, 1, 1);
+        assert!(summary.has_failures());
+    }
+
+    #[test]
+    fn test_has_failures_none() {
+        let summary = make_summary(5, 2, 3, 0, 0);
+        assert!(!summary.has_failures());
+    }
+
+    // --- Edge cases ---
+
+    #[test]
+    fn test_all_failed() {
+        let summary = make_summary(3, 0, 0, 0, 3);
+        assert!(!summary.is_complete());
+        assert!(summary.is_blocked()); // 0 ready, 0 < 3 total
+        assert!(summary.has_failures());
+    }
+
+    #[test]
+    fn test_mixed_state() {
+        let summary = make_summary(10, 2, 5, 2, 1);
+        assert!(!summary.is_complete());
+        assert!(!summary.is_blocked()); // has 2 ready
+        assert!(summary.has_failures());
+        assert_eq!(summary.progress_percentage, 50);
+    }
+
+    #[test]
+    fn test_single_step_complete() {
+        let summary = make_summary(1, 0, 1, 0, 0);
+        assert!(summary.is_complete());
+        assert!(!summary.is_blocked());
+        assert!(!summary.has_failures());
+        assert_eq!(summary.progress_percentage, 100);
+    }
+
+    #[test]
+    fn test_single_step_pending() {
+        let summary = make_summary(1, 1, 0, 0, 0);
+        assert!(!summary.is_complete());
+        assert!(!summary.is_blocked()); // has 1 ready
+        assert!(!summary.has_failures());
+        assert_eq!(summary.progress_percentage, 0);
+    }
+
+    // --- build_single_execution_request ---
+
+    use tasker_shared::models::core::task_template::{
+        HandlerDefinition, StepDefinition, TaskTemplate,
+    };
+
+    fn make_handler(callable: &str) -> HandlerDefinition {
+        HandlerDefinition::builder()
+            .callable(callable.to_string())
+            .build()
+    }
+
+    fn make_step_def(name: &str, handler: HandlerDefinition) -> StepDefinition {
+        StepDefinition::builder()
+            .name(name.to_string())
+            .handler(handler)
+            .build()
+    }
+
+    fn make_task_template(steps: Vec<StepDefinition>) -> TaskTemplate {
+        TaskTemplate::builder()
+            .name("test_task".to_string())
+            .namespace_name("default".to_string())
+            .version("1.0.0".to_string())
+            .steps(steps)
+            .build()
+    }
+
+    fn make_viable_step(name: &str) -> ViableStep {
+        ViableStep {
+            step_uuid: Uuid::now_v7(),
+            task_uuid: Uuid::now_v7(),
+            name: name.to_string(),
+            named_step_uuid: Uuid::now_v7(),
+            current_state: "pending".to_string(),
+            dependencies_satisfied: true,
+            retry_eligible: false,
+            attempts: 1,
+            max_attempts: 3,
+            last_failure_at: None,
+            next_retry_at: None,
+        }
+    }
+
+    #[test]
+    fn test_build_request_success() {
+        let step = make_viable_step("validate");
+        let task_uuid = Uuid::now_v7();
+        let handler = make_handler("MyApp::ValidateHandler");
+        let template = make_task_template(vec![make_step_def("validate", handler)]);
+
+        let result = super::build_single_execution_request(
+            &step,
+            task_uuid,
+            "default/test_task/1.0.0",
+            None,
+            &template,
+            std::collections::HashMap::new(),
+        );
+
+        let request = result.unwrap();
+        assert_eq!(request.step_uuid, step.step_uuid);
+        assert_eq!(request.task_uuid, task_uuid);
+        assert_eq!(request.step_name, "validate");
+        assert_eq!(request.handler_class, "MyApp::ValidateHandler");
+        assert_eq!(request.task_context, serde_json::json!({}));
+        assert_eq!(request.metadata.attempt, 1);
+        assert_eq!(request.metadata.max_attempts, 3);
+        assert_eq!(request.metadata.timeout_ms, 30000); // default
+    }
+
+    #[test]
+    fn test_build_request_with_task_context() {
+        let step = make_viable_step("process");
+        let template = make_task_template(vec![make_step_def("process", make_handler("Process"))]);
+        let ctx = serde_json::json!({"key": "value"});
+
+        let result = super::build_single_execution_request(
+            &step,
+            Uuid::now_v7(),
+            "ns/task/1.0",
+            Some(&ctx),
+            &template,
+            std::collections::HashMap::new(),
+        );
+
+        assert_eq!(
+            result.unwrap().task_context,
+            serde_json::json!({"key": "value"})
+        );
+    }
+
+    #[test]
+    fn test_build_request_step_not_found() {
+        let step = make_viable_step("missing_step");
+        let template = make_task_template(vec![make_step_def("other_step", make_handler("Other"))]);
+
+        let result = super::build_single_execution_request(
+            &step,
+            Uuid::now_v7(),
+            "ns/task/1.0",
+            None,
+            &template,
+            std::collections::HashMap::new(),
+        );
+
+        assert!(result.is_err());
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(err_msg.contains("missing_step"));
+    }
+
+    #[test]
+    fn test_build_request_timeout_from_initialization() {
+        let step = make_viable_step("step_a");
+        let mut handler = make_handler("Handler");
+        handler
+            .initialization
+            .insert("timeout_ms".to_string(), serde_json::json!(60000));
+        let mut step_def = make_step_def("step_a", handler);
+        step_def.timeout_seconds = Some(10); // should be overridden by initialization
+        let template = make_task_template(vec![step_def]);
+
+        let result = super::build_single_execution_request(
+            &step,
+            Uuid::now_v7(),
+            "ns/task/1.0",
+            None,
+            &template,
+            std::collections::HashMap::new(),
+        );
+
+        assert_eq!(result.unwrap().metadata.timeout_ms, 60000);
+    }
+
+    #[test]
+    fn test_build_request_timeout_from_step_seconds() {
+        let step = make_viable_step("step_b");
+        let mut step_def = make_step_def("step_b", make_handler("Handler"));
+        step_def.timeout_seconds = Some(45);
+        let template = make_task_template(vec![step_def]);
+
+        let result = super::build_single_execution_request(
+            &step,
+            Uuid::now_v7(),
+            "ns/task/1.0",
+            None,
+            &template,
+            std::collections::HashMap::new(),
+        );
+
+        assert_eq!(result.unwrap().metadata.timeout_ms, 45000);
+    }
+
+    #[test]
+    fn test_build_request_handler_config_extracted() {
+        let step = make_viable_step("step_c");
+        let mut handler = make_handler("ConfigHandler");
+        handler.initialization.insert(
+            "api_url".to_string(),
+            serde_json::json!("https://api.example.com"),
+        );
+        handler
+            .initialization
+            .insert("retries".to_string(), serde_json::json!(3));
+        let template = make_task_template(vec![make_step_def("step_c", handler)]);
+
+        let result = super::build_single_execution_request(
+            &step,
+            Uuid::now_v7(),
+            "ns/task/1.0",
+            None,
+            &template,
+            std::collections::HashMap::new(),
+        );
+
+        let request = result.unwrap();
+        assert_eq!(
+            request.handler_config.get("api_url"),
+            Some(&serde_json::json!("https://api.example.com"))
+        );
+        assert_eq!(
+            request.handler_config.get("retries"),
+            Some(&serde_json::json!(3))
+        );
+    }
+
+    #[test]
+    fn test_build_request_with_previous_results() {
+        let step = make_viable_step("step_d");
+        let template = make_task_template(vec![make_step_def("step_d", make_handler("Handler"))]);
+
+        let mut previous = std::collections::HashMap::new();
+        previous.insert(
+            "step_a".to_string(),
+            tasker_shared::StepExecutionResult {
+                step_uuid: Uuid::now_v7(),
+                success: true,
+                result: serde_json::json!({"output": "data"}),
+                status: "completed".to_string(),
+                ..Default::default()
+            },
+        );
+
+        let result = super::build_single_execution_request(
+            &step,
+            Uuid::now_v7(),
+            "ns/task/1.0",
+            None,
+            &template,
+            previous,
+        );
+
+        let request = result.unwrap();
+        assert!(request.previous_results.contains_key("step_a"));
     }
 }
