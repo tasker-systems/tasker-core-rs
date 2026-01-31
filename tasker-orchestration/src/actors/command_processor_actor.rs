@@ -44,7 +44,7 @@ use crate::health::caches::HealthStatusCaches;
 use crate::orchestration::channels::{
     ChannelFactory, OrchestrationCommandReceiver, OrchestrationCommandSender,
 };
-use crate::orchestration::command_processing_service::CommandProcessingService;
+use crate::orchestration::commands::CommandProcessingService;
 use crate::orchestration::commands::{
     AtomicProcessingStats, CommandResponder, OrchestrationCommand,
 };

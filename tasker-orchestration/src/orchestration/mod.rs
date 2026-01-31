@@ -51,7 +51,6 @@ pub mod core;
 pub mod health_check_evaluator;
 
 // Service Layer (TAS-46 Refactoring)
-pub mod command_processing_service; // Command processing business logic (extracted from CommandHandler)
 pub mod hydration; // Phase 4: Message hydration services
 
 // Infrastructure
@@ -101,7 +100,7 @@ pub use core::{OrchestrationCore, OrchestrationCoreStatus};
 // ============================================================================
 
 // Command Processing Service (TAS-46: actor/service separation)
-pub use command_processing_service::CommandProcessingService;
+pub use commands::CommandProcessingService;
 
 // Phase 4: Message Hydration Services
 pub use hydration::{FinalizationHydrator, StepResultHydrator, TaskRequestHydrator};
