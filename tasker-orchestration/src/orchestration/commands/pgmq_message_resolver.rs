@@ -19,7 +19,9 @@ use pgmq::Message as PgmqMessage;
 use tracing::{debug, error};
 
 use tasker_shared::messaging::client::MessageClient;
-use tasker_shared::messaging::service::{MessageEvent, MessageHandle, MessageMetadata, QueuedMessage};
+use tasker_shared::messaging::service::{
+    MessageEvent, MessageHandle, MessageMetadata, QueuedMessage,
+};
 use tasker_shared::{TaskerError, TaskerResult};
 
 /// Resolves PGMQ signal-only notifications into full `QueuedMessage` objects.
@@ -127,5 +129,72 @@ impl PgmqMessageResolver {
             },
             MessageMetadata::new(message.read_ct as u32, message.enqueued_at),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tasker_shared::messaging::service::{MessageId, MessageRouterKind, MessagingProvider};
+
+    fn create_in_memory_client() -> Arc<MessageClient> {
+        let provider = Arc::new(MessagingProvider::new_in_memory());
+        let router = MessageRouterKind::default();
+        Arc::new(MessageClient::new(provider, router))
+    }
+
+    fn create_test_event(queue: &str, msg_id: &str) -> MessageEvent {
+        MessageEvent {
+            queue_name: queue.to_string(),
+            namespace: "test".to_string(),
+            message_id: MessageId::new(msg_id),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_resolve_rejects_non_pgmq_provider() {
+        let client = create_in_memory_client();
+        let resolver = PgmqMessageResolver::new(client);
+        let event = create_test_event("test_queue", "42");
+
+        let result = resolver.resolve_message_event(&event, "task request").await;
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("does not support fetch-by-message-ID"),
+            "Expected provider rejection error, got: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_resolve_error_includes_provider_name() {
+        let client = create_in_memory_client();
+        let resolver = PgmqMessageResolver::new(client);
+        let event = create_test_event("test_queue", "42");
+
+        let result = resolver.resolve_message_event(&event, "step result").await;
+
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("in_memory"),
+            "Expected error to mention provider name, got: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_pgmq_client_returns_error_for_in_memory() {
+        let client = create_in_memory_client();
+        let resolver = PgmqMessageResolver::new(client);
+
+        let result = resolver.pgmq_client();
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.to_string().contains("PGMQ provider"),
+            "Expected PGMQ requirement error, got: {err}"
+        );
     }
 }

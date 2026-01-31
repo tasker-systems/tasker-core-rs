@@ -230,3 +230,89 @@ These modules require either: (a) decomposing large functions into testable unit
 3. **The `#[sqlx::test]` pattern is excellent.** Automatic migration, transaction isolation, and pool injection make database tests as easy to write as unit tests. The `fixture_path()` + `TaskHandlerRegistry::discover_and_register_templates()` pattern provides repeatable template setup.
 
 4. **Coverage ceilings exist for un-refactored code.** Files like `command_processor_actor.rs` at 1001 lines have complex control flow that resists testing from the outside. Refactoring to extract testable units (strategy pattern, pure functions, smaller methods) will unlock more coverage than adding more integration tests.
+
+---
+
+## Orchestration Refactoring Phase (January 30, 2026)
+
+### What Was Accomplished
+
+The refactoring phase addressed the coverage ceiling identified in lesson #4 above. Four large files (totaling 4,240 lines) were decomposed. All work was behavior-preserving — 506 library tests passing at each checkpoint.
+
+**Dead code removal:**
+- `state_manager.rs` (1,297 lines) — deleted. 11 of 14 methods were dead code. 3 used methods (`mark_task_in_progress`, `mark_step_enqueued`, `get_or_create_step_state_machine`) were inlined into their callers (`StepEnqueuer`, `StateInitializer`).
+- Unused `current_queue_sizes: HashMap<String, i64>` removed from stats struct (never populated in production).
+
+**Duplication reduction (~650 lines eliminated):**
+- `orchestration_event_system.rs`: 1,359 → ~700 lines. Extracted `send_command_and_await()` helper (removed ~250 lines of triplicated send-and-wait), fire-and-forget notification helper, and deployment mode setup helper (removed ~125 lines of duplicated `start()` branches).
+- `command_processor_actor.rs`: 1,001 → 366 lines. Business logic extracted into `CommandProcessingService`, leaving only thin routing + stats tracking.
+- `viable_step_discovery.rs`: 583 → ~450 lines. Pure functions extracted for step request building and dependency filtering.
+
+**New files created (testable surface):**
+- `commands/service.rs` — `CommandProcessingService` with three explicit lifecycle flows
+- `commands/pgmq_message_resolver.rs` — PGMQ signal-only resolution logic
+- `event_systems/command_outcome.rs` — `CommandOutcome` enum with pure `from_*` classifiers
+- `health_check_evaluator.rs` — Pure function for health status evaluation
+- `event_systems/orchestration_statistics.rs` — Extracted statistics tracking
+
+**Concurrency fix:**
+- `OrchestrationProcessingStats` converted from `Arc<RwLock<struct>>` to `AtomicProcessingStats` with lock-free `AtomicU64` counters, consistent with the newer stats types in the codebase.
+
+### The Three-Flow Lifecycle Model
+
+The most significant design outcome was the explicit lifecycle flow model for command processing:
+
+```
+Flow 1 - Direct:      DomainObject ──────────────────────────────→ Actor
+Flow 2 - FromMessage: QueuedMessage → Hydrator → DomainObject ──→ Actor → Ack
+Flow 3 - FromEvent:   MessageEvent → PgmqResolver → QueuedMessage → (Flow 2)
+```
+
+This model makes the provider-agnostic vs PGMQ-specific boundary explicit:
+- **Flow 1** has no messaging dependency at all — just actor delegation
+- **Flow 2** uses `MessageClient` only for the final `ack_message()` — provider-agnostic
+- **Flow 3** is the only PGMQ-specific code path, isolated in `PgmqMessageResolver`
+
+### InMemoryMessagingService Enables Unit Testing of Service Layer
+
+The key testability insight: `commands/service.rs` can be tested with `InMemoryMessagingService` as the messaging provider, eliminating the need for PGMQ or RabbitMQ infrastructure for most test scenarios.
+
+**What works with InMemoryMessagingService:**
+
+| Scenario | Why It Works |
+|----------|-------------|
+| Flow 2 (FromMessage) — full hydrate-process-ack cycle | `InMemoryMessagingService` implements `ack_message()` via receipt handle. Hydrators parse JSON from `QueuedMessage<Value>`. |
+| Flow 3 error paths — provider rejection | `InMemoryMessagingService.supports_fetch_by_message_id()` returns `false`, so Flow 3 methods return the expected `MessagingError`. |
+| Health check evaluation | Pure function on `HealthStatusCaches` — no messaging needed. |
+
+**What still needs real infrastructure:**
+
+| Scenario | Why |
+|----------|-----|
+| Flow 1 (Direct) | Needs `ActorRegistry` with real or mock actors (not messaging-related). |
+| Flow 3 success path | Needs `PgmqClient.read_specific_message()` — PGMQ-specific. |
+
+**Construction pattern for tests:**
+
+```rust
+let provider = Arc::new(MessagingProvider::new_in_memory());
+let router = MessageRouterKind::default();
+let message_client = Arc::new(MessageClient::new(provider, router));
+let service = CommandProcessingService::new(context, actors, message_client, health_caches);
+```
+
+This pattern means the service layer can have unit tests that:
+1. Construct `QueuedMessage` values directly (no queue infrastructure needed)
+2. Pass them through `*_from_message()` methods
+3. Verify hydration, processing delegation, and message acknowledgment
+4. Verify Flow 3 error handling when the provider doesn't support fetch-by-ID
+
+### Lessons from the Refactoring
+
+5. **Extract along provider boundaries, not just size boundaries.** The initial plan targeted file size reduction. The more valuable outcome was separating PGMQ-specific logic (`PgmqMessageResolver`) from provider-agnostic logic (the rest of the service). This boundary-based extraction directly enables testing with alternative providers.
+
+6. **Dead code in the denominator is worse than dead code in a file.** The `state_manager.rs` removal eliminated 442 coverable lines from the denominator. This has a double benefit: it removes the false impression that those lines need tests, and it raises the coverage percentage for the same number of covered lines. The 20 tests that tested dead code paths were also removed — they validated code that never executed in production.
+
+7. **The actor/service separation pattern (TAS-46) pays off at testing time.** Every actor in the codebase delegates to a service struct. The `CommandProcessingService` extraction followed this established pattern. The service can be constructed with test doubles (in-memory messaging, mock actors) while the actor remains a thin routing layer. This is the same pattern used by `TaskInitializer`, `StepEnqueuerService`, `TaskFinalizer`, etc.
+
+8. **Lifecycle flow organization is self-documenting.** Grouping methods by flow (Direct → FromMessage → FromEvent) rather than by entity (task init → step result → finalization) makes the provider boundary visible in the source code. A reader immediately sees which methods are provider-agnostic and which require PGMQ.

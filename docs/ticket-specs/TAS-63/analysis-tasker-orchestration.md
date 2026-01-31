@@ -56,8 +56,8 @@ These 23 files have zero test coverage. Together they represent 1,771 coverable 
 | `orchestration/hydration/task_request_hydrator.rs` | 50 | 7 | 14.0% | Hydrates task request data from queue messages. |
 | `orchestration/lifecycle/result_processing/state_transition_handler.rs` | 162 | 23 | 14.2% | Handles EnqueuedForOrchestration state transitions to fix race conditions. |
 | `orchestration/lifecycle/decision_point/service.rs` | 255 | 41 | 16.1% | Decision point processing: dynamic workflow step creation from decision outcomes. |
-| `orchestration/state_manager.rs` | 442 | 77 | 17.4% | High-level state management coordinating SQL functions with state machine transitions. |
-| `actors/command_processor_actor.rs` | 574 | 107 | 18.6% | Unified actor receiving commands via MPSC channels, routing to task/result/finalizer/enqueuer actors. |
+| ~~`orchestration/state_manager.rs`~~ | ~~442~~ | ~~77~~ | **Deleted** | Removed — 11/14 methods were dead code. 3 used methods inlined into callers. |
+| `actors/command_processor_actor.rs` | ~200 | — | — | Reduced from 574 coverable lines. Business logic extracted to `commands/service.rs`. |
 | `orchestration/staleness_detector.rs` | 274 | 58 | 21.2% | Background service detecting and transitioning stale tasks via SQL function calls. |
 | `orchestration/lifecycle/result_processing/task_coordinator.rs` | 108 | 23 | 21.3% | Coordinates task-level finalization when steps complete. |
 | `orchestration/core.rs` | 221 | 54 | 24.4% | OrchestrationCore: command-pattern bootstrap, channel setup, health monitoring. |
@@ -99,13 +99,13 @@ These modules form the core orchestration pipeline. Bugs here cause task corrupt
 
 **Estimated coverage impact**: +1.6 percentage points (approximately 589 lines / 37,306 total)
 
-**2. State Management (442 uncovered lines at 17.4% coverage)**
+**2. ~~State Management (442 uncovered lines at 17.4% coverage)~~ — RESOLVED**
 
-The `state_manager.rs` coordinates SQL function intelligence with state machine transitions. It handles bulk state transitions, event publishing, and error recovery. Untested state management risks corrupted workflow state.
+~~The `state_manager.rs` coordinates SQL function intelligence with state machine transitions.~~
 
-**Test approach**: Integration tests exercising each state transition path. Test bulk operations with mixed success/failure results. Verify event publishing for each transition type. Test error recovery scenarios where state machine and database disagree.
+**Resolution**: `state_manager.rs` was deleted (1,297 lines). Investigation revealed 11 of 14 methods were dead code. The 3 used methods were inlined into their callers (`StepEnqueuer`, `StateInitializer`). The 20 tests that tested dead code paths were also removed. This eliminated 442 coverable lines from the denominator.
 
-**Estimated coverage impact**: +1.0 percentage points
+**Estimated coverage impact**: +1.2 percentage points (denominator reduction)
 
 **3. Viable Step Discovery (342 lines at 7.3% coverage)**
 
@@ -123,13 +123,21 @@ Bridges error classification with actual step state transitions and backoff sche
 
 **Estimated coverage impact**: +0.6 percentage points
 
-**5. Command Processor Actor (574 lines at 18.6% coverage)**
+**5. Command Processor Actor / Command Processing Service — RESTRUCTURED**
 
-The unified command processor (TAS-148) is the central routing hub for all orchestration commands. It receives messages via MPSC channels and delegates to task request, result processor, finalizer, and step enqueuer actors. At 18.6% coverage, command routing, statistics tracking, and message acknowledgment are largely untested.
+The command processor has been decomposed into three components:
 
-**Test approach**: Integration tests sending each command type through the actor and verifying delegation. Test the `execute_with_stats` helper with success and error cases. Test message acknowledgment flows. Use mock actors for isolated command routing tests.
+| Component | Lines | Testability |
+|-----------|-------|-------------|
+| `command_processor_actor.rs` | 366 | Thin routing + stats — `execute_with_stats` testable |
+| `commands/service.rs` | ~340 | **Testable with InMemoryMessagingService** |
+| `commands/pgmq_message_resolver.rs` | ~115 | Error path testable, success path needs PGMQ |
 
-**Estimated coverage impact**: +1.3 percentage points
+The `CommandProcessingService` in `commands/service.rs` now has three explicit lifecycle flows. Flow 2 (FromMessage) methods can be tested with `InMemoryMessagingService` — no PGMQ or RabbitMQ needed. Flow 3 error paths (provider rejection) are also testable with the in-memory provider.
+
+**Test approach**: Construct `CommandProcessingService` with `MessagingProvider::new_in_memory()`. Test Flow 2 methods with constructed `QueuedMessage` values. Test Flow 3 error paths (provider rejects `supports_fetch_by_message_id`). Test `execute_with_stats` with mock futures for success/error counting. Test `health_check()` with constructed `HealthStatusCaches`.
+
+**Estimated coverage impact**: +1.3 percentage points (now achievable without messaging infrastructure for most paths)
 
 ### High Priority -- Quality and Reliability Risk
 
@@ -310,10 +318,10 @@ Focus on production correctness. All modules here handle task/step state and aff
 | Action | Files | Test Type | Est. Lines | Est. pp |
 |--------|-------|-----------|-----------|---------|
 | Result processing pipeline tests | message_handler, state_transition_handler, task_coordinator, metadata_processor | Integration (DB fixtures) | 542 | +1.5 |
-| State manager integration tests | state_manager.rs | Integration (DB) | 365 | +1.0 |
-| Viable step discovery tests | viable_step_discovery.rs | Integration (DB) | 317 | +0.9 |
+| ~~State manager integration tests~~ | ~~state_manager.rs~~ | — | — | **Resolved**: file deleted, +1.2 pp from denominator reduction |
+| Viable step discovery tests | viable_step_discovery.rs | Integration (DB) + Unit (pure fns) | 317 | +0.9 |
 | Error handling service unit tests | error_handling_service.rs | Unit (mock state machine) | 217 | +0.6 |
-| Command processor actor tests | command_processor_actor.rs | Integration (channels) | 467 | +1.3 |
+| Command processing service tests | commands/service.rs | Unit (InMemoryMessagingService) + Integration | 340 | +1.3 |
 | Error type conversion tests | errors.rs | Unit | 54 | +0.1 |
 | Core orchestration tests | core.rs | Integration | 167 | +0.4 |
 | Decision point service tests | decision_point/service.rs | Integration (DB) | 214 | +0.6 |
@@ -377,7 +385,8 @@ Extend coverage on already-partially-covered modules, targeting the 55-85% range
 |-------|-------|-----------------------|----------------|---------------------|
 | Baseline | -- | -- | -- | 31.6% |
 | **Completed** | **Unit tests + integration tests** | **1,228 integration + inline unit** | **+4.10 pp** | **35.70%** |
-| Phase 1 (remaining) | Critical path correctness (refactoring + tests) | ~2,000 | +5.0 pp | ~40.7% |
+| **Completed** | **Refactoring (denominator reduction + testability)** | **~2,700 lines removed/restructured** | **+~1.2 pp (denominator)** | **~36.9%** |
+| Phase 1 (remaining) | Tests for extracted pure functions + service layer | ~1,500 | +3.8 pp | ~40.7% |
 | Phase 2 | Reliability and API layer | ~2,369 | +6.5 pp | ~47.2% |
 | Phase 3 | Depth and completeness | ~1,700 | +4.5 pp | ~51.7% |
 | Phase 4 | Final push to target | ~1,500 | +3.3 pp | ~55.0% |
@@ -407,4 +416,27 @@ Key modules now covered that were previously at 0%:
 - `orchestration/errors.rs` — 10 From trait conversion tests
 - `orchestration/backoff_calculator.rs` — 18 configuration and calculation tests
 - `orchestration/error_handling_service.rs` — 9 action/result tests
-- `orchestration/state_manager.rs` — 20 transition request/outcome tests
+- `orchestration/state_manager.rs` — 20 transition request/outcome tests (later removed with file)
+
+### Refactoring Phase (Jan 30, 2026)
+
+Decomposed four large files (4,240 lines total) into smaller, testable units. All refactoring is behavior-preserving — 506 library tests passing at each checkpoint.
+
+**Dead code removed:**
+- `state_manager.rs` deleted (1,297 lines, 442 coverable). 11/14 methods were dead code.
+- Unused `current_queue_sizes: HashMap` removed from stats struct.
+
+**Files restructured:**
+- `command_processor_actor.rs`: 1,001 → 366 lines. Business logic extracted to `commands/service.rs`.
+- `orchestration_event_system.rs`: 1,359 → ~700 lines. Helpers extracted, duplication eliminated.
+- `viable_step_discovery.rs`: 583 → ~450 lines. Pure functions extracted.
+
+**New testable modules created:**
+- `commands/service.rs` (~340 lines) — `CommandProcessingService` with three lifecycle flows. **Testable with `InMemoryMessagingService`** — no PGMQ/RabbitMQ required for Flow 2 (FromMessage) and Flow 3 error paths.
+- `commands/pgmq_message_resolver.rs` (~115 lines) — PGMQ-only signal resolution.
+- `event_systems/command_outcome.rs` (~50 lines) — Pure `from_*` classifiers.
+- `health_check_evaluator.rs` (~50 lines) — Pure function for health evaluation.
+
+**Concurrency fix:** `OrchestrationProcessingStats` converted from `Arc<RwLock<struct>>` to `AtomicProcessingStats` with lock-free `AtomicU64` counters.
+
+**Testability unlocked:** The `CommandProcessingService` can be constructed with `MessagingProvider::new_in_memory()` for unit tests. This eliminates the messaging infrastructure barrier identified in the original analysis for ~340 lines of command processing logic. Combined with the pure function extractions (CommandOutcome, health evaluator, step request builder, dependency filter), approximately 500 lines of previously untestable logic are now independently verifiable.

@@ -8,13 +8,13 @@
 //! - `service`: Business logic service implementing three lifecycle flows
 //! - `pgmq_message_resolver`: PGMQ-specific signal resolution infrastructure
 
-pub mod types;
 pub(crate) mod pgmq_message_resolver;
 pub mod service;
+pub mod types;
 
+pub use service::CommandProcessingService;
 pub use types::{
     AtomicProcessingStats, CommandResponder, OrchestrationCommand, OrchestrationProcessingStats,
     StepProcessResult, SystemHealth, TaskFinalizationResult, TaskInitializeResult,
     TaskReadinessResult,
 };
-pub use service::CommandProcessingService;

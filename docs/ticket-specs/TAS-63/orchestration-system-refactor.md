@@ -4,7 +4,7 @@
 
 Decompose large, tightly-coupled source files in `tasker-orchestration` into smaller, testable units while removing dead code. All active functionality must be preserved. The refactoring unlocks coverage by making pure logic and repeating patterns independently testable without requiring full infrastructure (messaging backends, actor systems, database).
 
-## Current State
+## Pre-Refactoring State
 
 | File | Lines | Coverable | Coverage | Tests |
 |------|-------|-----------|----------|-------|
@@ -17,6 +17,20 @@ Decompose large, tightly-coupled source files in `tasker-orchestration` into sma
 Coverage target: 55% crate-wide (currently 35.70%).
 
 **Note**: `bootstrap.rs` (923 lines, 9.7% coverage) was dropped from scope. It was recently refactored into well-decomposed named steps, and the testable surface area there doesn't add or remove confidence in the system that doesn't already happen every time we build and launch the service.
+
+## Post-Refactoring State
+
+| File | Lines | Change | Testability |
+|------|-------|--------|-------------|
+| `orchestration_event_system.rs` | ~700 | -659 lines: extracted statistics, helpers, deduped start() | Helpers are pure/near-pure |
+| `command_processor_actor.rs` | 366 | -635 lines: service extracted to commands/ module | Thin routing layer only |
+| `commands/service.rs` | ~340 | **New** (from command_processing_service.rs) | **Testable with InMemoryMessagingService** |
+| `commands/pgmq_message_resolver.rs` | ~115 | **New** (extracted from service) | PGMQ-only, error path testable |
+| `event_systems/command_outcome.rs` | ~50 | **New** | Pure functions, fully testable |
+| `health_check_evaluator.rs` | ~50 | **New** | Pure function, fully testable |
+| `viable_step_discovery.rs` | ~450 | -133 lines: extracted pure functions | Pure functions testable |
+| `state_manager.rs` | **Deleted** | -1,297 lines: 3 methods inlined, 11 dead methods removed | Denominator reduced |
+| `command_processing_service.rs` | **Deleted** | Moved to `commands/service.rs` | — |
 
 ---
 
@@ -446,6 +460,116 @@ Phase 1 items are independent and can be done in parallel. Phase 2 items build o
 
 ---
 
+## Completion Status (January 30, 2026)
+
+**All Phase 1 and Phase 2 work items are complete.** Phase 3 (tests) is the remaining work.
+
+### Phase 1 — Complete
+
+| Item | Status | Details |
+|------|--------|---------|
+| [1A] OrchestrationStatistics extraction | **Done** | Moved to `event_systems/orchestration_statistics.rs` |
+| [2A] health_check_evaluator extraction | **Done** | New file `orchestration/health_check_evaluator.rs` |
+| [2D] SWMR conversion for stats | **Done** | `AtomicProcessingStats` with lock-free `AtomicU64` counters, `snapshot()` method |
+| [3C] TaskReadinessSummary unit tests | **Done** | Unit tests for `is_complete`, `is_blocked`, `has_failures` |
+| [4] StateManager removal | **Done** | 1,297 lines deleted. 3 used methods inlined into `StepEnqueuer` and `StateInitializer` |
+
+### Phase 2 — Complete
+
+| Item | Status | Details |
+|------|--------|---------|
+| [1B] CommandOutcome enum | **Done** | `event_systems/command_outcome.rs` with `from_*` classifiers |
+| [1C] Notification dispatch helper | **Done** | `send_command_and_await()` eliminated ~250 lines of duplication |
+| [1D] Listener setup helper | **Done** | Extracted deployment mode setup, eliminated ~125 lines of duplication |
+| [2B] PGMQ message event pipeline | **Done** | `commands/pgmq_message_resolver.rs` — `PgmqMessageResolver` struct |
+| [2C] Message-then-ack pipeline | **Done** | `commands/service.rs` — `CommandProcessingService` with lifecycle flow organization |
+| [3A] Step execution request builder | **Done** | Pure function `build_single_step_request()` in `viable_step_discovery.rs` |
+| [3B] Dependency filter function | **Done** | Pure function extraction in `viable_step_discovery.rs` |
+
+### Beyond Original Plan — CommandProcessingService Restructuring
+
+The PGMQ pipeline extraction (2B) and message-then-ack extraction (2C) evolved into a more comprehensive restructuring that established a clear three-flow lifecycle model:
+
+```
+Flow 1 - Direct:      DomainObject ──────────────────────────────→ Actor
+Flow 2 - FromMessage: QueuedMessage → Hydrator → DomainObject ──→ Actor → Ack
+Flow 3 - FromEvent:   MessageEvent → PgmqResolver → QueuedMessage → (Flow 2)
+```
+
+**File structure after restructuring:**
+
+```
+orchestration/commands/
+  mod.rs                    # Module declarations + re-exports
+  types.rs                  # OrchestrationCommand enum, result types (unchanged)
+  service.rs                # CommandProcessingService (moved from ../command_processing_service.rs)
+  pgmq_message_resolver.rs  # PgmqMessageResolver (PGMQ signal-only infrastructure)
+```
+
+**Key design decisions:**
+- `PgmqMessageResolver` encapsulates all PGMQ-specific logic (`pgmq_client()`, `resolve_message_event()`, `wrap_pgmq_message()`). Flow 3 methods become thin wrappers.
+- `ack_message_with_handle()` stays on the service — it's provider-agnostic (uses `MessageClient.ack_message()`).
+- Service methods are organized by lifecycle flow, making the provider-agnostic vs PGMQ-specific boundary explicit in the code structure.
+- `command_processing_service.rs` deleted from `orchestration/` root. Re-export path changed to `commands::CommandProcessingService`.
+
+### Test Counts
+
+All refactoring is behavior-preserving. The library test suite was tracked at each step:
+
+| Checkpoint | Tests |
+|------------|-------|
+| Before StateManager removal | 487 |
+| After StateManager removal + method migration | 487 |
+| After event system refactoring | 506 |
+| After viable_step_discovery extraction | 506 |
+| After CommandProcessingService restructuring | 506 |
+
+### Phase 3 — Testability Unlocked
+
+The restructuring makes `commands/service.rs` testable with the in-memory messaging provider (`InMemoryMessagingService`), eliminating the need for PGMQ or RabbitMQ infrastructure for most tests:
+
+**Testable with `InMemoryMessagingService` (no external services needed):**
+
+| Flow | Methods | What's Testable |
+|------|---------|-----------------|
+| Flow 2 (FromMessage) | `task_initialize_from_message()`, `step_result_from_message()`, `task_finalize_from_message()` | Full hydrate → process → ack cycle. The `InMemoryMessagingService` supports `ack_message()` via receipt handle, so the provider-agnostic ack path exercises correctly. Hydrators parse JSON from `QueuedMessage<Value>` — no database needed for the parsing path, though integration tests with DB fixtures cover the full hydration. |
+| Flow 3 error path | `*_from_message_event()` | Provider rejection: `InMemoryMessagingService.supports_fetch_by_message_id()` returns `false`, so Flow 3 methods return `MessagingError` — verifiable without PGMQ. |
+| Health | `health_check()` | Pure-function evaluation via `health_check_evaluator` with constructed `HealthStatusCaches`. |
+
+**Require actors (mock `ActorRegistry` or real actors):**
+
+| Flow | Methods | Dependencies |
+|------|---------|-------------|
+| Flow 1 (Direct) | `initialize_task()`, `process_step_result()`, `finalize_task()`, `process_task_readiness()` | These delegate to actors via `Handler<M>` trait. Testable with mock actors or through the existing integration test infrastructure. |
+
+**Require PGMQ (integration tests only):**
+
+| Flow | Methods | Why |
+|------|---------|-----|
+| Flow 3 success path | `*_from_message_event()` | Requires `read_specific_message()` on a real PGMQ client. These are thin wrappers over `PgmqMessageResolver.resolve_message_event()` → Flow 2, so testing Flow 2 independently provides high confidence. |
+
+**Construction pattern for tests:**
+
+```rust
+use tasker_shared::messaging::client::MessageClient;
+use tasker_shared::messaging::service::provider::MessagingProvider;
+use tasker_shared::messaging::service::providers::InMemoryMessagingService;
+
+let provider = Arc::new(MessagingProvider::new_in_memory());
+let router = MessageRouterKind::default();
+let message_client = Arc::new(MessageClient::new(provider, router));
+
+// Construct service with in-memory messaging
+let service = CommandProcessingService::new(
+    context,           // Arc<SystemContext>
+    actors,            // Arc<ActorRegistry>
+    message_client,    // Arc<MessageClient> with InMemoryMessagingService
+    health_caches,     // HealthStatusCaches
+);
+```
+
+---
+
 ## Constraints
 
 - **All refactoring must be behavior-preserving.** No functional changes to active code paths.
@@ -459,11 +583,12 @@ Phase 1 items are independent and can be done in parallel. Phase 2 items build o
 
 ## Success Criteria
 
-After all phases:
-- `state_manager.rs` is removed (1,297 lines of dead/near-dead code eliminated)
-- No remaining file exceeds 800 lines (currently two exceed 1,000)
-- Each extracted function/module has unit tests
-- `OrchestrationProcessingStats` uses lock-free atomics (consistent with crate conventions)
-- `cargo test --all-features` passes with no regressions
-- Coverage increases toward 40%+ (from 35.70%) through newly testable surface + reduced coverable denominator
-- `cargo clippy --all-targets --all-features` passes clean
+| Criterion | Status |
+|-----------|--------|
+| `state_manager.rs` is removed (1,297 lines of dead/near-dead code eliminated) | **Done** |
+| No remaining file exceeds 800 lines (previously two exceeded 1,000) | **Done** — `orchestration_event_system.rs` reduced from 1,359 to ~700; `command_processor_actor.rs` reduced from 1,001 to 366 (service extracted) |
+| `OrchestrationProcessingStats` uses lock-free atomics | **Done** — `AtomicProcessingStats` with `AtomicU64` counters |
+| `cargo test --all-features` passes with no regressions | **Done** — 506 library tests passing at each checkpoint |
+| `cargo clippy --all-targets --all-features` passes clean | **Done** — no new warnings |
+| Each extracted function/module has unit tests | **Phase 3** — pure functions extracted, test infrastructure unlocked, tests to be written |
+| Coverage increases toward 40%+ | **Phase 3** — coverable denominator reduced by ~1,700 lines (StateManager + dead code), testable surface expanded via InMemoryMessagingService |

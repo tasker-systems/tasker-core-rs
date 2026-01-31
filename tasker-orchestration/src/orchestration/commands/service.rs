@@ -487,3 +487,274 @@ impl CommandProcessingService {
             .await
     }
 }
+
+#[cfg(test)]
+#[cfg(feature = "test-messaging")]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    use sqlx::PgPool;
+
+    use tasker_shared::messaging::service::{MessageId, MessageRouterKind, MessagingProvider};
+
+    /// Queue names used by the default router
+    const TASK_REQUEST_QUEUE: &str = "orchestration_task_requests";
+    const STEP_RESULT_QUEUE: &str = "orchestration_step_results";
+    const FINALIZATION_QUEUE: &str = "orchestration_task_finalizations";
+
+    /// Create a MessageClient backed by InMemoryMessagingService
+    fn create_in_memory_client() -> Arc<MessageClient> {
+        let provider = Arc::new(MessagingProvider::new_in_memory());
+        let router = MessageRouterKind::default();
+        Arc::new(MessageClient::new(provider, router))
+    }
+
+    /// Create the service with in-memory messaging and real actors
+    async fn create_test_service(
+        pool: PgPool,
+    ) -> (CommandProcessingService, Arc<MessageClient>, ActorRegistry) {
+        let context = Arc::new(
+            SystemContext::with_pool(pool)
+                .await
+                .expect("SystemContext creation failed"),
+        );
+        let actors = ActorRegistry::build(context.clone())
+            .await
+            .expect("ActorRegistry build failed");
+
+        let message_client = create_in_memory_client();
+        let health_caches = HealthStatusCaches::new();
+
+        let service = CommandProcessingService::new(
+            context,
+            Arc::new(actors.clone()),
+            message_client.clone(),
+            health_caches,
+        );
+
+        (service, message_client, actors)
+    }
+
+    /// Helper to create a MessageEvent for testing
+    fn test_event(queue: &str, msg_id: &str) -> MessageEvent {
+        MessageEvent {
+            queue_name: queue.to_string(),
+            namespace: "test".to_string(),
+            message_id: MessageId::new(msg_id),
+        }
+    }
+
+    /// Helper to send a JSON message to a queue and receive it back as QueuedMessage<Value>
+    async fn enqueue_and_receive(
+        client: &MessageClient,
+        queue_name: &str,
+        payload: &serde_json::Value,
+    ) -> QueuedMessage<serde_json::Value> {
+        client
+            .provider()
+            .ensure_queue(queue_name)
+            .await
+            .expect("ensure_queue failed");
+        client
+            .provider()
+            .send_message(queue_name, payload)
+            .await
+            .expect("send_message failed");
+        let mut messages: Vec<QueuedMessage<serde_json::Value>> = client
+            .provider()
+            .receive_messages(queue_name, 1, Duration::from_secs(30))
+            .await
+            .expect("receive_messages failed");
+        assert_eq!(messages.len(), 1, "Expected exactly one message");
+        messages.remove(0)
+    }
+
+    /// Helper to get the message count for a queue
+    async fn queue_message_count(client: &MessageClient, queue_name: &str) -> u64 {
+        client
+            .provider()
+            .queue_stats(queue_name)
+            .await
+            .expect("queue_stats failed")
+            .message_count
+    }
+
+    // =========================================================================
+    // Flow 3 — Provider rejection tests
+    // =========================================================================
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_task_init_from_event_rejects_in_memory_provider(pool: PgPool) {
+        let (service, _, mut actors) = create_test_service(pool).await;
+        let event = test_event(TASK_REQUEST_QUEUE, "42");
+
+        let result = service.task_initialize_from_message_event(event).await;
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("does not support"));
+        actors.shutdown().await;
+    }
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_step_result_from_event_rejects_in_memory_provider(pool: PgPool) {
+        let (service, _, mut actors) = create_test_service(pool).await;
+        let event = test_event(STEP_RESULT_QUEUE, "42");
+
+        let result = service.step_result_from_message_event(event).await;
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("does not support"));
+        actors.shutdown().await;
+    }
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_finalization_from_event_rejects_in_memory_provider(pool: PgPool) {
+        let (service, _, mut actors) = create_test_service(pool).await;
+        let event = test_event(FINALIZATION_QUEUE, "42");
+
+        let result = service.task_finalize_from_message_event(event).await;
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("does not support"));
+        actors.shutdown().await;
+    }
+
+    // =========================================================================
+    // Flow 2 — Hydration error tests
+    // =========================================================================
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_task_init_from_message_rejects_invalid_json(pool: PgPool) {
+        let (service, client, mut actors) = create_test_service(pool).await;
+        let message = enqueue_and_receive(
+            &client,
+            TASK_REQUEST_QUEUE,
+            &serde_json::json!("not an object"),
+        )
+        .await;
+
+        let result = service.task_initialize_from_message(message).await;
+
+        assert!(result.is_err(), "Expected hydration error for invalid JSON");
+        // Message should remain in queue (not acked) because hydration failed before processing
+        let count = queue_message_count(&client, TASK_REQUEST_QUEUE).await;
+        assert_eq!(
+            count, 1,
+            "Message should remain in queue after hydration failure"
+        );
+        actors.shutdown().await;
+    }
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_step_result_from_message_rejects_invalid_json(pool: PgPool) {
+        let (service, client, mut actors) = create_test_service(pool).await;
+        let message = enqueue_and_receive(
+            &client,
+            STEP_RESULT_QUEUE,
+            &serde_json::json!({"not": "a step result"}),
+        )
+        .await;
+
+        let result = service.step_result_from_message(message).await;
+
+        assert!(
+            result.is_err(),
+            "Expected hydration error for invalid step result"
+        );
+        let count = queue_message_count(&client, STEP_RESULT_QUEUE).await;
+        assert_eq!(
+            count, 1,
+            "Message should remain in queue after hydration failure"
+        );
+        actors.shutdown().await;
+    }
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_finalization_from_message_rejects_missing_uuid(pool: PgPool) {
+        let (service, client, mut actors) = create_test_service(pool).await;
+        let message = enqueue_and_receive(
+            &client,
+            FINALIZATION_QUEUE,
+            &serde_json::json!({"no_task_uuid": true}),
+        )
+        .await;
+
+        let result = service.task_finalize_from_message(message).await;
+
+        assert!(
+            result.is_err(),
+            "Expected hydration error for missing task_uuid"
+        );
+        let count = queue_message_count(&client, FINALIZATION_QUEUE).await;
+        assert_eq!(
+            count, 1,
+            "Message should remain in queue after hydration failure"
+        );
+        actors.shutdown().await;
+    }
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_finalization_from_message_rejects_invalid_uuid(pool: PgPool) {
+        let (service, client, mut actors) = create_test_service(pool).await;
+        let message = enqueue_and_receive(
+            &client,
+            FINALIZATION_QUEUE,
+            &serde_json::json!({"task_uuid": "not-a-uuid"}),
+        )
+        .await;
+
+        let result = service.task_finalize_from_message(message).await;
+
+        assert!(result.is_err(), "Expected hydration error for invalid UUID");
+        let count = queue_message_count(&client, FINALIZATION_QUEUE).await;
+        assert_eq!(
+            count, 1,
+            "Message should remain in queue after hydration failure"
+        );
+        actors.shutdown().await;
+    }
+
+    // =========================================================================
+    // Flow 2 — Message retention on processing failure
+    // =========================================================================
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_finalization_message_not_acked_on_actor_failure(pool: PgPool) {
+        let (service, client, mut actors) = create_test_service(pool).await;
+        // Valid UUID that doesn't correspond to any task in the test database
+        let nonexistent_uuid = Uuid::new_v4();
+        let message = enqueue_and_receive(
+            &client,
+            FINALIZATION_QUEUE,
+            &serde_json::json!({"task_uuid": nonexistent_uuid.to_string()}),
+        )
+        .await;
+
+        let result = service.task_finalize_from_message(message).await;
+
+        // Finalization should fail because the task doesn't exist
+        assert!(result.is_err(), "Expected error for nonexistent task");
+        // Message should remain in queue (not acked) for retry
+        let count = queue_message_count(&client, FINALIZATION_QUEUE).await;
+        assert_eq!(count, 1, "Message should remain in queue when actor fails");
+        actors.shutdown().await;
+    }
+
+    // =========================================================================
+    // Health check
+    // =========================================================================
+
+    #[sqlx::test(migrator = "tasker_shared::database::migrator::MIGRATOR")]
+    async fn test_health_check_returns_status(pool: PgPool) {
+        let (service, _, mut actors) = create_test_service(pool).await;
+
+        let result = service.health_check().await;
+
+        assert!(
+            result.is_ok(),
+            "Health check should succeed with default caches"
+        );
+        actors.shutdown().await;
+    }
+}
