@@ -24,6 +24,24 @@ recovery_timeout_seconds = 5
 success_threshold = 2
 slow_send_threshold_ms = 100
 
+[worker.circuit_breakers.ffi_completion_send._docs.failure_threshold]
+description = "Number of consecutive FFI completion send failures before the circuit breaker trips"
+type = "u32"
+valid_range = "1-100"
+system_impact = "Protects the FFI completion channel from cascading failures; when tripped, sends are short-circuited"
+
+[worker.circuit_breakers.ffi_completion_send._docs.recovery_timeout_seconds]
+description = "Time the FFI completion breaker stays Open before probing with a test send"
+type = "u32"
+valid_range = "1-300"
+system_impact = "Short timeout (5s) because FFI channel issues are typically transient"
+
+[worker.circuit_breakers.ffi_completion_send._docs.success_threshold]
+description = "Consecutive successful sends in Half-Open required to close the breaker"
+type = "u32"
+valid_range = "1-100"
+system_impact = "Low threshold (2) allows fast recovery since FFI send failures are usually transient"
+
 [worker.circuit_breakers.ffi_completion_send._docs.slow_send_threshold_ms]
 description = "Threshold in milliseconds above which FFI completion channel sends are logged as slow"
 type = "u32"
@@ -53,10 +71,58 @@ visibility_timeout_seconds = 30
 processing_timeout_seconds = 60
 claim_timeout_seconds = 300
 
+[worker.event_systems.worker.timing._docs.health_check_interval_seconds]
+description = "Interval in seconds between health check probes for the worker event system"
+type = "u32"
+valid_range = "1-3600"
+system_impact = "Controls how frequently the worker event system verifies its own connectivity"
+
+[worker.event_systems.worker.timing._docs.fallback_polling_interval_seconds]
+description = "Interval in seconds between fallback polling cycles for step dispatch"
+type = "u32"
+valid_range = "1-60"
+system_impact = "Shorter than orchestration (2s vs 5s) because workers need fast step pickup for low latency"
+
+[worker.event_systems.worker.timing._docs.visibility_timeout_seconds]
+description = "Time in seconds a dequeued step dispatch message remains invisible to other workers"
+type = "u32"
+valid_range = "1-3600"
+system_impact = "Prevents duplicate step execution; must be longer than typical step processing time"
+
+[worker.event_systems.worker.timing._docs.processing_timeout_seconds]
+description = "Maximum time in seconds allowed for processing a single worker event"
+type = "u32"
+valid_range = "1-3600"
+system_impact = "Events exceeding this timeout are considered failed and may be retried"
+
+[worker.event_systems.worker.timing._docs.claim_timeout_seconds]
+description = "Maximum time in seconds a worker event claim remains valid"
+type = "u32"
+valid_range = "1-3600"
+system_impact = "Prevents abandoned claims from blocking step processing indefinitely"
+
 [worker.event_systems.worker.processing]
 max_concurrent_operations = 100
 batch_size = 20
 max_retries = 3
+
+[worker.event_systems.worker.processing._docs.max_concurrent_operations]
+description = "Maximum number of events processed concurrently by the worker event system"
+type = "u32"
+valid_range = "1-10000"
+system_impact = "Controls parallelism for step dispatch and completion processing"
+
+[worker.event_systems.worker.processing._docs.batch_size]
+description = "Number of events dequeued in a single batch read by the worker"
+type = "u32"
+valid_range = "1-1000"
+system_impact = "Larger batches improve throughput but increase per-batch processing time"
+
+[worker.event_systems.worker.processing._docs.max_retries]
+description = "Maximum retry attempts for a failed worker event processing operation"
+type = "u32"
+valid_range = "0-100"
+system_impact = "Events exceeding this retry count are dropped or sent to the DLQ"
 
 [worker.event_systems.worker.processing.backoff]
 initial_delay_ms = 100
@@ -64,15 +130,75 @@ max_delay_ms = 10000
 multiplier = 2.0
 jitter_percent = 0.1
 
+[worker.event_systems.worker.processing.backoff._docs.initial_delay_ms]
+description = "Initial backoff delay in milliseconds after first worker event processing failure"
+type = "u64"
+valid_range = "10-60000"
+system_impact = "Starting point for exponential backoff; lower values retry faster"
+
+[worker.event_systems.worker.processing.backoff._docs.max_delay_ms]
+description = "Maximum backoff delay in milliseconds between worker event retries"
+type = "u64"
+valid_range = "100-300000"
+system_impact = "Caps exponential growth to prevent excessively long delays"
+
+[worker.event_systems.worker.processing.backoff._docs.multiplier]
+description = "Multiplier applied to the backoff delay after each consecutive failure"
+type = "f64"
+valid_range = "1.0-10.0"
+system_impact = "Controls how aggressively the delay grows; 2.0 doubles the delay each time"
+
+[worker.event_systems.worker.processing.backoff._docs.jitter_percent]
+description = "Maximum jitter as a fraction of the computed backoff delay"
+type = "f64"
+valid_range = "0.0-1.0"
+system_impact = "Randomizes retry timing to prevent synchronized retry storms across workers"
+
 [worker.event_systems.worker.health]
 enabled = true
 performance_monitoring_enabled = true
 max_consecutive_errors = 10
 error_rate_threshold_per_minute = 20
 
+[worker.event_systems.worker.health._docs.enabled]
+description = "Enable health monitoring for the worker event system"
+type = "bool"
+valid_range = "true/false"
+system_impact = "When false, no health checks or error tracking run for the worker event system"
+
+[worker.event_systems.worker.health._docs.performance_monitoring_enabled]
+description = "Enable detailed performance metrics for worker event processing"
+type = "bool"
+valid_range = "true/false"
+system_impact = "Tracks step dispatch latency and throughput; useful for tuning concurrency settings"
+
+[worker.event_systems.worker.health._docs.max_consecutive_errors]
+description = "Number of consecutive errors before the worker event system reports as unhealthy"
+type = "u32"
+valid_range = "1-1000"
+system_impact = "Triggers health status degradation; resets on any successful event processing"
+
+[worker.event_systems.worker.health._docs.error_rate_threshold_per_minute]
+description = "Error rate per minute above which the worker event system reports as unhealthy"
+type = "u32"
+valid_range = "1-10000"
+system_impact = "Rate-based health signal complementing max_consecutive_errors"
+
 [worker.event_systems.worker.metadata.in_process_events]
 ffi_integration_enabled = true
 deduplication_cache_size = 10000
+
+[worker.event_systems.worker.metadata.in_process_events._docs.ffi_integration_enabled]
+description = "Enable FFI integration for in-process event delivery to Ruby/Python workers"
+type = "bool"
+valid_range = "true/false"
+system_impact = "When true, in-process events are forwarded to FFI dispatch channels for cross-language step execution"
+
+[worker.event_systems.worker.metadata.in_process_events._docs.deduplication_cache_size]
+description = "Number of event IDs to cache for deduplication of in-process events"
+type = "usize"
+valid_range = "100-1000000"
+system_impact = "Prevents duplicate event processing; larger caches use more memory but reduce duplicate risk over longer windows"
 
 [worker.event_systems.worker.metadata.listener]
 retry_interval_seconds = 5
@@ -80,6 +206,36 @@ max_retry_attempts = 5
 event_timeout_seconds = 60
 batch_processing = true
 connection_timeout_seconds = 30
+
+[worker.event_systems.worker.metadata.listener._docs.retry_interval_seconds]
+description = "Interval in seconds between LISTEN/NOTIFY listener reconnection attempts"
+type = "u32"
+valid_range = "1-300"
+system_impact = "Controls how quickly the listener recovers after a PostgreSQL connection loss"
+
+[worker.event_systems.worker.metadata.listener._docs.max_retry_attempts]
+description = "Maximum number of listener reconnection attempts before falling back to polling"
+type = "u32"
+valid_range = "1-100"
+system_impact = "After exhausting retries, the system degrades to polling-only mode until the next health check"
+
+[worker.event_systems.worker.metadata.listener._docs.event_timeout_seconds]
+description = "Maximum time to wait for a LISTEN/NOTIFY event before yielding"
+type = "u32"
+valid_range = "1-300"
+system_impact = "Prevents the listener from blocking indefinitely; shorter values improve shutdown responsiveness"
+
+[worker.event_systems.worker.metadata.listener._docs.batch_processing]
+description = "Enable batch processing of accumulated LISTEN/NOTIFY events"
+type = "bool"
+valid_range = "true/false"
+system_impact = "When true, multiple queued notifications are processed in a single batch for better throughput"
+
+[worker.event_systems.worker.metadata.listener._docs.connection_timeout_seconds]
+description = "Maximum time to wait when establishing the LISTEN/NOTIFY PostgreSQL connection"
+type = "u32"
+valid_range = "1-300"
+system_impact = "Listener connections that cannot be established within this window fail and trigger a retry"
 
 [worker.event_systems.worker.metadata.fallback_poller]
 enabled = true
@@ -90,11 +246,77 @@ max_age_hours = 24
 visibility_timeout_seconds = 30
 supported_namespaces = []
 
+[worker.event_systems.worker.metadata.fallback_poller._docs.enabled]
+description = "Enable the fallback polling mechanism for step dispatch"
+type = "bool"
+valid_range = "true/false"
+system_impact = "When false, the worker relies entirely on LISTEN/NOTIFY; disable only in EventDrivenOnly mode"
+
+[worker.event_systems.worker.metadata.fallback_poller._docs.polling_interval_ms]
+description = "Interval in milliseconds between fallback polling cycles"
+type = "u32"
+valid_range = "100-60000"
+system_impact = "Lower values reduce step pickup latency but increase database query load"
+
+[worker.event_systems.worker.metadata.fallback_poller._docs.batch_size]
+description = "Number of messages to dequeue in a single fallback poll"
+type = "u32"
+valid_range = "1-1000"
+system_impact = "Larger batches improve throughput during fallback operation"
+
+[worker.event_systems.worker.metadata.fallback_poller._docs.age_threshold_seconds]
+description = "Minimum age in seconds of a message before the fallback poller will pick it up"
+type = "u32"
+valid_range = "1-3600"
+system_impact = "Ensures the event-driven path has time to process messages before the poller intervenes"
+
+[worker.event_systems.worker.metadata.fallback_poller._docs.max_age_hours]
+description = "Maximum age in hours of messages the fallback poller will process"
+type = "u32"
+valid_range = "1-168"
+system_impact = "Messages older than this are considered stale and skipped by the poller"
+
+[worker.event_systems.worker.metadata.fallback_poller._docs.visibility_timeout_seconds]
+description = "Time in seconds a message polled by the fallback mechanism remains invisible"
+type = "u32"
+valid_range = "1-3600"
+system_impact = "Prevents duplicate processing during fallback polling"
+
+[worker.event_systems.worker.metadata.fallback_poller._docs.supported_namespaces]
+description = "List of queue namespaces the fallback poller monitors; empty means all namespaces"
+type = "Vec<String>"
+valid_range = "list of namespace strings"
+system_impact = "Restricts which queues the poller checks; useful for dedicated workers that handle specific step types"
+
 [worker.event_systems.worker.metadata.resource_limits]
 max_memory_mb = 4096
 max_cpu_percent = 80.0
 max_database_connections = 100
 max_queue_connections = 50
+
+[worker.event_systems.worker.metadata.resource_limits._docs.max_memory_mb]
+description = "Maximum memory in megabytes the worker event system is expected to use"
+type = "u32"
+valid_range = "256-65536"
+system_impact = "Advisory limit for capacity planning; not enforced at the process level"
+
+[worker.event_systems.worker.metadata.resource_limits._docs.max_cpu_percent]
+description = "Maximum CPU utilization percentage the worker event system should target"
+type = "f64"
+valid_range = "1.0-100.0"
+system_impact = "Advisory limit; used for load shedding decisions and capacity planning"
+
+[worker.event_systems.worker.metadata.resource_limits._docs.max_database_connections]
+description = "Maximum number of database connections the worker event system can use"
+type = "u32"
+valid_range = "1-1000"
+system_impact = "Bounds the event system's share of the database connection pool"
+
+[worker.event_systems.worker.metadata.resource_limits._docs.max_queue_connections]
+description = "Maximum number of queue connections the worker event system can use"
+type = "u32"
+valid_range = "1-500"
+system_impact = "Bounds the event system's share of PGMQ/RabbitMQ connections"
 
 [worker.step_processing]
 claim_timeout_seconds = 300
@@ -124,6 +346,12 @@ health_check_interval_seconds = 30
 performance_monitoring_enabled = true
 error_rate_threshold = 0.05
 
+[worker.health_monitoring._docs.performance_monitoring_enabled]
+description = "Enable detailed performance metrics collection for worker health monitoring"
+type = "bool"
+valid_range = "true/false"
+system_impact = "Tracks step execution latency, throughput, and success rates for health assessment"
+
 [worker.health_monitoring._docs.health_check_interval_seconds]
 description = "Interval in seconds between worker health self-checks"
 type = "u32"
@@ -139,12 +367,36 @@ system_impact = "A value of 0.05 means the worker becomes unhealthy if more than
 [worker.mpsc_channels.command_processor]
 command_buffer_size = 2000
 
+[worker.mpsc_channels.command_processor._docs.command_buffer_size]
+description = "Bounded channel capacity for the worker command processor"
+type = "usize"
+valid_range = "100-100000"
+system_impact = "Buffers incoming worker commands; smaller than orchestration (2000 vs 5000) since workers process fewer command types"
+
 [worker.mpsc_channels.event_systems]
 event_channel_buffer_size = 2000
+
+[worker.mpsc_channels.event_systems._docs.event_channel_buffer_size]
+description = "Bounded channel capacity for the worker event system internal channel"
+type = "usize"
+valid_range = "100-100000"
+system_impact = "Buffers events between the listener and processor; sized for worker-level throughput"
 
 [worker.mpsc_channels.event_subscribers]
 completion_buffer_size = 1000
 result_buffer_size = 1000
+
+[worker.mpsc_channels.event_subscribers._docs.completion_buffer_size]
+description = "Bounded channel capacity for step completion event subscribers"
+type = "usize"
+valid_range = "100-50000"
+system_impact = "Buffers step completion notifications before they are forwarded to the orchestration service"
+
+[worker.mpsc_channels.event_subscribers._docs.result_buffer_size]
+description = "Bounded channel capacity for step result event subscribers"
+type = "usize"
+valid_range = "100-50000"
+system_impact = "Buffers step execution results before they are published to the result queue"
 
 # TAS-65: In-process event bus configuration for fast domain event delivery
 [worker.mpsc_channels.in_process_events]
@@ -152,14 +404,56 @@ broadcast_buffer_size = 2000
 log_subscriber_errors = true
 dispatch_timeout_ms = 5000
 
+[worker.mpsc_channels.in_process_events._docs.broadcast_buffer_size]
+description = "Bounded broadcast channel capacity for in-process domain event delivery"
+type = "usize"
+valid_range = "100-100000"
+system_impact = "Controls how many domain events can be buffered before slow subscribers cause backpressure"
+
+[worker.mpsc_channels.in_process_events._docs.log_subscriber_errors]
+description = "Log errors when in-process event subscribers fail to receive events"
+type = "bool"
+valid_range = "true/false"
+system_impact = "Observability: helps identify slow or failing event subscribers"
+
+[worker.mpsc_channels.in_process_events._docs.dispatch_timeout_ms]
+description = "Maximum time in milliseconds to wait when dispatching an in-process event"
+type = "u32"
+valid_range = "100-60000"
+system_impact = "Prevents event dispatch from blocking indefinitely if all subscribers are slow"
+
 [worker.mpsc_channels.event_listeners]
 pgmq_event_buffer_size = 10000
+
+[worker.mpsc_channels.event_listeners._docs.pgmq_event_buffer_size]
+description = "Bounded channel capacity for PGMQ event listener notifications on the worker"
+type = "usize"
+valid_range = "1000-1000000"
+system_impact = "Buffers PGMQ LISTEN/NOTIFY events; smaller than orchestration (10000 vs 50000) since workers handle fewer event types"
 
 # TAS-65/TAS-69: Domain Event System MPSC Configuration
 [worker.mpsc_channels.domain_events]
 command_buffer_size = 1000
 shutdown_drain_timeout_ms = 5000
 log_dropped_events = true
+
+[worker.mpsc_channels.domain_events._docs.command_buffer_size]
+description = "Bounded channel capacity for domain event system commands"
+type = "usize"
+valid_range = "100-50000"
+system_impact = "Buffers domain event system control commands such as publish, subscribe, and shutdown"
+
+[worker.mpsc_channels.domain_events._docs.shutdown_drain_timeout_ms]
+description = "Maximum time in milliseconds to drain pending domain events during shutdown"
+type = "u32"
+valid_range = "100-60000"
+system_impact = "Ensures in-flight domain events are delivered before the worker exits; prevents event loss"
+
+[worker.mpsc_channels.domain_events._docs.log_dropped_events]
+description = "Log a warning when domain events are dropped due to channel saturation"
+type = "bool"
+valid_range = "true/false"
+system_impact = "Observability: helps detect when event volume exceeds channel capacity"
 
 # TAS-67: Handler Dispatch System MPSC Configuration
 [worker.mpsc_channels.handler_dispatch]
@@ -168,6 +462,30 @@ completion_buffer_size = 1000
 max_concurrent_handlers = 10
 handler_timeout_ms = 30000
 
+[worker.mpsc_channels.handler_dispatch._docs.dispatch_buffer_size]
+description = "Bounded channel capacity for step handler dispatch requests"
+type = "usize"
+valid_range = "100-50000"
+system_impact = "Buffers incoming step execution requests before handler assignment"
+
+[worker.mpsc_channels.handler_dispatch._docs.completion_buffer_size]
+description = "Bounded channel capacity for step handler completion notifications"
+type = "usize"
+valid_range = "100-50000"
+system_impact = "Buffers handler completion results before they are forwarded to the result processor"
+
+[worker.mpsc_channels.handler_dispatch._docs.max_concurrent_handlers]
+description = "Maximum number of step handlers executing simultaneously"
+type = "u32"
+valid_range = "1-10000"
+system_impact = "Controls per-worker parallelism; bounded by the handler dispatch semaphore"
+
+[worker.mpsc_channels.handler_dispatch._docs.handler_timeout_ms]
+description = "Maximum time in milliseconds for a step handler to complete execution"
+type = "u32"
+valid_range = "1000-600000"
+system_impact = "Handlers exceeding this timeout are cancelled; prevents hung handlers from consuming capacity"
+
 # TAS-75 Phase 4: Worker Load Shedding Configuration
 [worker.mpsc_channels.handler_dispatch.load_shedding]
 enabled = true
@@ -175,6 +493,24 @@ enabled = true
 capacity_threshold_percent = 80.0
 # Log warning when approaching threshold (0-100%)
 warning_threshold_percent = 70.0
+
+[worker.mpsc_channels.handler_dispatch.load_shedding._docs.enabled]
+description = "Enable load shedding to refuse step claims when handler capacity is nearly exhausted"
+type = "bool"
+valid_range = "true/false"
+system_impact = "When true, the worker refuses new step claims above the capacity threshold to prevent overload"
+
+[worker.mpsc_channels.handler_dispatch.load_shedding._docs.capacity_threshold_percent]
+description = "Handler capacity percentage above which new step claims are refused"
+type = "f64"
+valid_range = "0.0-100.0"
+system_impact = "At 80%, the worker stops accepting new steps when 80% of max_concurrent_handlers are busy"
+
+[worker.mpsc_channels.handler_dispatch.load_shedding._docs.warning_threshold_percent]
+description = "Handler capacity percentage at which warning logs are emitted"
+type = "f64"
+valid_range = "0.0-100.0"
+system_impact = "Observability: alerts operators that the worker is approaching its capacity limit"
 
 # TAS-67: FFI Dispatch Channel Configuration
 [worker.mpsc_channels.ffi_dispatch]
@@ -191,6 +527,36 @@ starvation_warning_threshold_ms = 10000
 # Max time to retry sending completion results when channel is full
 # Uses try_send with retry loop instead of blocking send
 completion_send_timeout_ms = 10000
+
+[worker.mpsc_channels.ffi_dispatch._docs.dispatch_buffer_size]
+description = "Bounded channel capacity for FFI step dispatch requests"
+type = "usize"
+valid_range = "100-50000"
+system_impact = "Buffers step execution requests destined for Ruby/Python FFI handlers"
+
+[worker.mpsc_channels.ffi_dispatch._docs.completion_timeout_ms]
+description = "Maximum time in milliseconds to wait for an FFI step handler to complete"
+type = "u32"
+valid_range = "1000-600000"
+system_impact = "FFI handlers exceeding this timeout are considered failed; guards against hung FFI threads"
+
+[worker.mpsc_channels.ffi_dispatch._docs.callback_timeout_ms]
+description = "Maximum time in milliseconds for FFI fire-and-forget domain event callbacks"
+type = "u32"
+valid_range = "100-60000"
+system_impact = "Prevents indefinite blocking of FFI threads during domain event publishing"
+
+[worker.mpsc_channels.ffi_dispatch._docs.starvation_warning_threshold_ms]
+description = "Age in milliseconds of pending FFI events that triggers a starvation warning"
+type = "u32"
+valid_range = "1000-300000"
+system_impact = "Proactive detection of FFI channel starvation before completion_timeout_ms is reached"
+
+[worker.mpsc_channels.ffi_dispatch._docs.completion_send_timeout_ms]
+description = "Maximum time in milliseconds to retry sending FFI completion results when the channel is full"
+type = "u32"
+valid_range = "1000-300000"
+system_impact = "Uses try_send with retry loop instead of blocking send to prevent deadlocks"
 
 # Orchestration Client Configuration
 # How the worker connects to the orchestration API
@@ -227,6 +593,12 @@ enabled = true
 bind_address = "${TASKER_WEB_BIND_ADDRESS:-0.0.0.0:8081}"
 request_timeout_ms = 30000
 
+[worker.web._docs.request_timeout_ms]
+description = "Maximum time in milliseconds for a worker HTTP request to complete before timeout"
+type = "u32"
+valid_range = "100-300000"
+system_impact = "Requests exceeding this timeout return HTTP 408; protects against slow client connections"
+
 [worker.web._docs.enabled]
 description = "Enable the REST API server for the worker service"
 type = "bool"
@@ -250,6 +622,36 @@ web_api_connection_timeout_seconds = 30
 web_api_idle_timeout_seconds = 600
 max_total_connections_hint = 25
 
+[worker.web.database_pools._docs.web_api_pool_size]
+description = "Target number of connections in the worker web API database pool"
+type = "u32"
+valid_range = "1-200"
+system_impact = "Determines how many concurrent database queries the worker REST API can execute; smaller than orchestration"
+
+[worker.web.database_pools._docs.web_api_max_connections]
+description = "Maximum number of connections the worker web API pool can grow to under load"
+type = "u32"
+valid_range = "1-500"
+system_impact = "Hard ceiling for worker web API database connections"
+
+[worker.web.database_pools._docs.web_api_connection_timeout_seconds]
+description = "Maximum time to wait when acquiring a connection from the worker web API pool"
+type = "u32"
+valid_range = "1-300"
+system_impact = "Worker API requests that cannot acquire a connection within this window return an error"
+
+[worker.web.database_pools._docs.web_api_idle_timeout_seconds]
+description = "Time before an idle worker web API connection is closed"
+type = "u32"
+valid_range = "1-3600"
+system_impact = "Controls how quickly the worker web API pool shrinks after traffic subsides"
+
+[worker.web.database_pools._docs.max_total_connections_hint]
+description = "Advisory hint for the total number of database connections across all worker pools"
+type = "u32"
+valid_range = "1-1000"
+system_impact = "Used for capacity planning; not enforced but logged if actual connections exceed this hint"
+
 # TAS-61: Removed [worker.web.cors] - CORS uses hardcoded tower_http::cors::Any in middleware
 
 [worker.web.auth]
@@ -269,6 +671,54 @@ type = "bool"
 valid_range = "true/false"
 system_impact = "When false, all worker API endpoints are unauthenticated"
 
+[worker.web.auth._docs.jwt_issuer]
+description = "Expected 'iss' claim in JWT tokens for the worker API"
+type = "String"
+valid_range = "non-empty string"
+system_impact = "Tokens with a different issuer are rejected; default 'tasker-worker' distinguishes worker tokens from orchestration tokens"
+
+[worker.web.auth._docs.jwt_audience]
+description = "Expected 'aud' claim in JWT tokens for the worker API"
+type = "String"
+valid_range = "non-empty string"
+system_impact = "Tokens with a different audience are rejected during validation"
+
+[worker.web.auth._docs.jwt_token_expiry_hours]
+description = "Default JWT token validity period in hours for worker API tokens"
+type = "u32"
+valid_range = "1-720"
+system_impact = "Tokens older than this are rejected; shorter values improve security"
+
+[worker.web.auth._docs.jwt_private_key]
+description = "PEM-encoded private key for signing JWT tokens (if the worker issues tokens)"
+type = "String"
+valid_range = "valid PEM private key or empty"
+system_impact = "Required only if the worker service issues its own JWT tokens; typically empty"
+
+[worker.web.auth._docs.jwt_public_key]
+description = "PEM-encoded public key for verifying JWT token signatures on the worker API"
+type = "String"
+valid_range = "valid PEM public key or empty"
+system_impact = "Required for JWT validation; prefer jwt_public_key_path for file-based key management"
+
+[worker.web.auth._docs.jwt_public_key_path]
+description = "File path to a PEM-encoded public key for worker JWT verification"
+type = "String"
+valid_range = "valid file path or empty"
+system_impact = "Alternative to inline jwt_public_key; supports key rotation by replacing the file"
+
+[worker.web.auth._docs.api_key]
+description = "Static API key for simple key-based authentication on the worker API"
+type = "String"
+valid_range = "non-empty string or empty to disable"
+system_impact = "When non-empty and auth is enabled, clients can authenticate by sending this key in the api_key_header"
+
+[worker.web.auth._docs.api_key_header]
+description = "HTTP header name for API key authentication on the worker API"
+type = "String"
+valid_range = "valid HTTP header name"
+system_impact = "Clients send their API key in this header; default is X-API-Key"
+
 # TAS-169: Template routes moved to /v1/templates, cache operations removed
 # Old routes removed: DELETE /templates/cache, POST /templates/cache/maintain,
 # POST /templates/{namespace}/{name}/{version}/refresh
@@ -279,6 +729,12 @@ system_impact = "When false, all worker API endpoints are unauthenticated"
 circuit_breaker_enabled = true
 # TAS-61: Removed request_timeout_seconds - timeout hardcoded in middleware (30s)
 # TAS-61: Removed max_concurrent_requests - no concurrency limiting implemented
+
+[worker.web.resilience._docs.circuit_breaker_enabled]
+description = "Enable circuit breaker protection for the worker REST API"
+type = "bool"
+valid_range = "true/false"
+system_impact = "When true, the worker API uses circuit breakers to protect against cascading failures"
 
 # TAS-177: gRPC API Configuration
 [worker.grpc]
@@ -305,8 +761,44 @@ type = "String"
 valid_range = "host:port"
 system_impact = "Must not conflict with the REST API or orchestration gRPC ports; default 9191"
 
+[worker.grpc._docs.tls_enabled]
+description = "Enable TLS encryption for worker gRPC connections"
+type = "bool"
+valid_range = "true/false"
+system_impact = "When true, TLS cert and key paths must be provided; required for production gRPC deployments"
+
+[worker.grpc._docs.keepalive_interval_seconds]
+description = "Interval in seconds between gRPC keepalive ping frames on the worker"
+type = "u32"
+valid_range = "1-3600"
+system_impact = "Detects dead connections; lower values detect failures faster but increase network overhead"
+
+[worker.grpc._docs.keepalive_timeout_seconds]
+description = "Time in seconds to wait for a keepalive ping acknowledgment before closing the connection"
+type = "u32"
+valid_range = "1-300"
+system_impact = "Connections that fail to acknowledge within this window are considered dead and closed"
+
 [worker.grpc._docs.max_concurrent_streams]
 description = "Maximum number of concurrent gRPC streams per connection"
 type = "u32"
 valid_range = "1-10000"
 system_impact = "Workers typically handle more concurrent streams than orchestration; default 1000 reflects this"
+
+[worker.grpc._docs.max_frame_size]
+description = "Maximum size in bytes of a single HTTP/2 frame for the worker gRPC server"
+type = "u32"
+valid_range = "16384-16777215"
+system_impact = "Larger frames reduce framing overhead for large messages but increase memory per-stream"
+
+[worker.grpc._docs.enable_reflection]
+description = "Enable gRPC server reflection for the worker service"
+type = "bool"
+valid_range = "true/false"
+system_impact = "Allows tools like grpcurl to list and inspect worker services; consider disabling in production"
+
+[worker.grpc._docs.enable_health_service]
+description = "Enable the gRPC health checking service on the worker"
+type = "bool"
+valid_range = "true/false"
+system_impact = "Required for gRPC-native health checks used by load balancers and container orchestrators"

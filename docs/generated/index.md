@@ -2,67 +2,67 @@
 
 
 
-> **Coverage:** 105/303 parameters documented (34%)
+> **Coverage:** 303/303 parameters documented (100%)
 
 ---
 
 ## Common Configuration
-- **backoff** (`common.backoff`) — 12 params (8 documented)
+- **backoff** (`common.backoff`) — 12 params (12 documented)
 - reenqueue_delays (`common.backoff.reenqueue_delays`) — 7 params
-- **cache** (`common.cache`) — 11 params (7 documented)
+- **cache** (`common.cache`) — 11 params (11 documented)
 - moka (`common.cache.moka`) — 1 params
 - redis (`common.cache.redis`) — 4 params
-- **circuit_breakers** (`common.circuit_breakers`) — 16 params (5 documented)
+- **circuit_breakers** (`common.circuit_breakers`) — 16 params (16 documented)
 - component_configs (`common.circuit_breakers.component_configs`) — 9 params
 - default_config (`common.circuit_breakers.default_config`) — 3 params
 - global_settings (`common.circuit_breakers.global_settings`) — 3 params
 - **database** (`common.database`) — 10 params (10 documented)
 - pool (`common.database.pool`) — 6 params
 - variables (`common.database.variables`) — 1 params
-- **execution** (`common.execution`) — 10 params (7 documented)
-- **mpsc_channels** (`common.mpsc_channels`) — 6 params
+- **execution** (`common.execution`) — 10 params (10 documented)
+- **mpsc_channels** (`common.mpsc_channels`) — 6 params (6 documented)
 - event_publisher (`common.mpsc_channels.event_publisher`) — 1 params
 - ffi (`common.mpsc_channels.ffi`) — 1 params
 - overflow_policy (`common.mpsc_channels.overflow_policy`) — 4 params
-- **pgmq_database** (`common.pgmq_database`) — 9 params (2 documented)
+- **pgmq_database** (`common.pgmq_database`) — 9 params (9 documented)
 - pool (`common.pgmq_database.pool`) — 6 params
 - **queues** (`common.queues`) — 21 params (21 documented)
 - orchestration_queues (`common.queues.orchestration_queues`) — 3 params
 - pgmq (`common.queues.pgmq`) — 6 params
 - rabbitmq (`common.queues.rabbitmq`) — 4 params
 - **system** (`common.system`) — 3 params (3 documented)
-- **task_templates** (`common.task_templates`) — 1 params
-- **telemetry** (`common.telemetry`) — 3 params
+- **task_templates** (`common.task_templates`) — 1 params (1 documented)
+- **telemetry** (`common.telemetry`) — 3 params (3 documented)
 
 ## Orchestration Configuration
 - **orchestration** (`orchestration`) — 2 params (2 documented)
-- **batch_processing** (`orchestration.batch_processing`) — 4 params
-- **decision_points** (`orchestration.decision_points`) — 7 params
-- **dlq** (`orchestration.dlq`) — 21 params (8 documented)
+- **batch_processing** (`orchestration.batch_processing`) — 4 params (4 documented)
+- **decision_points** (`orchestration.decision_points`) — 7 params (7 documented)
+- **dlq** (`orchestration.dlq`) — 21 params (21 documented)
 - reasons (`orchestration.dlq.reasons`) — 5 params
 - staleness_detection (`orchestration.dlq.staleness_detection`) — 12 params
-- **event_systems** (`orchestration.event_systems`) — 36 params (2 documented)
+- **event_systems** (`orchestration.event_systems`) — 36 params (36 documented)
 - orchestration (`orchestration.event_systems.orchestration`) — 18 params
 - task_readiness (`orchestration.event_systems.task_readiness`) — 18 params
-- **grpc** (`orchestration.grpc`) — 9 params (5 documented)
-- **mpsc_channels** (`orchestration.mpsc_channels`) — 3 params
+- **grpc** (`orchestration.grpc`) — 9 params (9 documented)
+- **mpsc_channels** (`orchestration.mpsc_channels`) — 3 params (3 documented)
 - command_processor (`orchestration.mpsc_channels.command_processor`) — 1 params
 - event_listeners (`orchestration.mpsc_channels.event_listeners`) — 1 params
 - event_systems (`orchestration.mpsc_channels.event_systems`) — 1 params
-- **web** (`orchestration.web`) — 18 params (6 documented)
+- **web** (`orchestration.web`) — 18 params (18 documented)
 - auth (`orchestration.web.auth`) — 9 params
 - database_pools (`orchestration.web.database_pools`) — 5 params
 - resilience (`orchestration.web.resilience`) — 1 params
 
 ## Worker Configuration
 - **worker** (`worker`) — 2 params (2 documented)
-- **circuit_breakers** (`worker.circuit_breakers`) — 4 params (1 documented)
+- **circuit_breakers** (`worker.circuit_breakers`) — 4 params (4 documented)
 - ffi_completion_send (`worker.circuit_breakers.ffi_completion_send`) — 4 params
-- **event_systems** (`worker.event_systems`) — 36 params (2 documented)
+- **event_systems** (`worker.event_systems`) — 36 params (36 documented)
 - worker (`worker.event_systems.worker`) — 36 params
-- **grpc** (`worker.grpc`) — 9 params (3 documented)
-- **health_monitoring** (`worker.health_monitoring`) — 3 params (2 documented)
-- **mpsc_channels** (`worker.mpsc_channels`) — 23 params
+- **grpc** (`worker.grpc`) — 9 params (9 documented)
+- **health_monitoring** (`worker.health_monitoring`) — 3 params (3 documented)
+- **mpsc_channels** (`worker.mpsc_channels`) — 23 params (23 documented)
 - command_processor (`worker.mpsc_channels.command_processor`) — 1 params
 - domain_events (`worker.mpsc_channels.domain_events`) — 3 params
 - event_listeners (`worker.mpsc_channels.event_listeners`) — 1 params
@@ -73,7 +73,7 @@
 - in_process_events (`worker.mpsc_channels.in_process_events`) — 3 params
 - **orchestration_client** (`worker.orchestration_client`) — 3 params (3 documented)
 - **step_processing** (`worker.step_processing`) — 3 params (3 documented)
-- **web** (`worker.web`) — 18 params (3 documented)
+- **web** (`worker.web`) — 18 params (18 documented)
 - auth (`worker.web.auth`) — 9 params
 - database_pools (`worker.web.database_pools`) — 5 params
 - resilience (`worker.web.resilience`) — 1 params

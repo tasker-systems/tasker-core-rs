@@ -132,6 +132,12 @@ type = "bool"
 valid_range = "true/false"
 system_impact = "When false, PGMQ queue operations are disabled; only useful if using RabbitMQ as the sole messaging backend"
 
+[common.pgmq_database._docs.skip_migration_check]
+description = "Skip PGMQ database migration version check at startup"
+type = "bool"
+valid_range = "true/false"
+system_impact = "When true, PGMQ migration verification is skipped; use only for testing or externally managed migrations"
+
 [common.pgmq_database.pool]
 max_connections = 15
 min_connections = 3
@@ -139,6 +145,42 @@ acquire_timeout_seconds = 5
 idle_timeout_seconds = 300
 max_lifetime_seconds = 1800
 slow_acquire_threshold_ms = 100
+
+[common.pgmq_database.pool._docs.max_connections]
+description = "Maximum number of concurrent connections in the PGMQ database pool"
+type = "u32"
+valid_range = "1-500"
+system_impact = "Separate from the main database pool; size according to messaging throughput requirements"
+
+[common.pgmq_database.pool._docs.min_connections]
+description = "Minimum idle connections maintained in the PGMQ database pool"
+type = "u32"
+valid_range = "0-100"
+system_impact = "Keeps PGMQ connections warm to avoid cold-start latency on queue operations"
+
+[common.pgmq_database.pool._docs.acquire_timeout_seconds]
+description = "Maximum time to wait when acquiring a connection from the PGMQ pool"
+type = "u32"
+valid_range = "1-300"
+system_impact = "Queue operations fail with timeout if no PGMQ connection is available within this window"
+
+[common.pgmq_database.pool._docs.idle_timeout_seconds]
+description = "Time before an idle PGMQ connection is closed and removed from the pool"
+type = "u32"
+valid_range = "1-3600"
+system_impact = "Controls how quickly the PGMQ pool shrinks after messaging load drops"
+
+[common.pgmq_database.pool._docs.max_lifetime_seconds]
+description = "Maximum total lifetime of a PGMQ database connection before replacement"
+type = "u32"
+valid_range = "60-86400"
+system_impact = "Prevents connection drift in long-running PGMQ connections"
+
+[common.pgmq_database.pool._docs.slow_acquire_threshold_ms]
+description = "Threshold in milliseconds above which PGMQ pool acquisition is logged as slow"
+type = "u32"
+valid_range = "10-60000"
+system_impact = "Observability: slow PGMQ acquire warnings indicate messaging pool pressure"
 
 [common.queues]
 # Messaging backend selection (TAS-133)
@@ -331,6 +373,18 @@ type = "u32"
 valid_range = "1-1000"
 system_impact = "Safety limit to prevent unbounded circuit breaker allocation; increase only if adding many component-specific breakers"
 
+[common.circuit_breakers.global_settings._docs.metrics_collection_interval_seconds]
+description = "Interval in seconds between circuit breaker metrics collection sweeps"
+type = "u32"
+valid_range = "1-3600"
+system_impact = "Controls how frequently circuit breaker state, failure counts, and transition counts are collected for observability"
+
+[common.circuit_breakers.global_settings._docs.min_state_transition_interval_seconds]
+description = "Minimum time in seconds between circuit breaker state transitions"
+type = "f64"
+valid_range = "0.0-60.0"
+system_impact = "Prevents rapid oscillation between Open and Closed states during intermittent failures"
+
 [common.circuit_breakers.default_config]
 failure_threshold = 5
 timeout_seconds = 30
@@ -359,10 +413,46 @@ failure_threshold = 10
 timeout_seconds = 60
 success_threshold = 3
 
+[common.circuit_breakers.component_configs.task_readiness._docs.failure_threshold]
+description = "Failures before the task readiness circuit breaker trips to Open"
+type = "u32"
+valid_range = "1-100"
+system_impact = "Higher than default (10 vs 5) because task readiness queries are frequent and transient failures are expected"
+
+[common.circuit_breakers.component_configs.task_readiness._docs.timeout_seconds]
+description = "Time the task readiness breaker stays Open before probing"
+type = "u32"
+valid_range = "1-300"
+system_impact = "Longer than default (60s) to give the database time to recover from readiness query pressure"
+
+[common.circuit_breakers.component_configs.task_readiness._docs.success_threshold]
+description = "Successes in Half-Open required to close the task readiness breaker"
+type = "u32"
+valid_range = "1-100"
+system_impact = "Slightly higher than default (3) for extra confidence before resuming readiness queries"
+
 [common.circuit_breakers.component_configs.pgmq]
 failure_threshold = 5
 timeout_seconds = 30
 success_threshold = 2
+
+[common.circuit_breakers.component_configs.pgmq._docs.failure_threshold]
+description = "Failures before the PGMQ circuit breaker trips to Open"
+type = "u32"
+valid_range = "1-100"
+system_impact = "Protects the messaging layer; when tripped, queue operations are short-circuited"
+
+[common.circuit_breakers.component_configs.pgmq._docs.timeout_seconds]
+description = "Time the PGMQ breaker stays Open before probing"
+type = "u32"
+valid_range = "1-300"
+system_impact = "Controls recovery time after PGMQ failures; matches the default config"
+
+[common.circuit_breakers.component_configs.pgmq._docs.success_threshold]
+description = "Successes in Half-Open required to close the PGMQ breaker"
+type = "u32"
+valid_range = "1-100"
+system_impact = "Lower threshold (2) allows faster recovery since PGMQ failures are typically transient"
 
 # TAS-171: Cache circuit breaker (protects Redis/Dragonfly operations)
 [common.circuit_breakers.component_configs.cache]
@@ -370,19 +460,73 @@ failure_threshold = 5
 timeout_seconds = 15   # Shorter than default - cache is non-critical
 success_threshold = 2
 
+[common.circuit_breakers.component_configs.cache._docs.failure_threshold]
+description = "Failures before the cache circuit breaker trips to Open"
+type = "u32"
+valid_range = "1-100"
+system_impact = "Protects Redis/Dragonfly operations; when tripped, cache reads fall through to database"
+
+[common.circuit_breakers.component_configs.cache._docs.timeout_seconds]
+description = "Time the cache breaker stays Open before probing"
+type = "u32"
+valid_range = "1-300"
+system_impact = "Shorter than default (15s) because cache is non-critical and can recover quickly"
+
+[common.circuit_breakers.component_configs.cache._docs.success_threshold]
+description = "Successes in Half-Open required to close the cache breaker"
+type = "u32"
+valid_range = "1-100"
+system_impact = "Low threshold (2) for fast recovery since cache failures gracefully degrade to database"
+
 [common.mpsc_channels.event_publisher]
 event_queue_buffer_size = 5000
 
+[common.mpsc_channels.event_publisher._docs.event_queue_buffer_size]
+description = "Bounded channel capacity for the event publisher MPSC channel"
+type = "usize"
+valid_range = "100-100000"
+system_impact = "Controls backpressure for domain event publishing; smaller buffers apply backpressure sooner"
+
 [common.mpsc_channels.ffi]
 ruby_event_buffer_size = 1000
+
+[common.mpsc_channels.ffi._docs.ruby_event_buffer_size]
+description = "Bounded channel capacity for Ruby FFI event delivery"
+type = "usize"
+valid_range = "100-50000"
+system_impact = "Buffers events between the Rust runtime and Ruby FFI layer; overflow triggers backpressure on the dispatch side"
 
 [common.mpsc_channels.overflow_policy]
 log_warning_threshold = 0.8
 drop_policy = "block"
 
+[common.mpsc_channels.overflow_policy._docs.log_warning_threshold]
+description = "Channel saturation fraction at which warning logs are emitted"
+type = "f64"
+valid_range = "0.0-1.0"
+system_impact = "A value of 0.8 means warnings fire when any channel reaches 80% capacity"
+
+[common.mpsc_channels.overflow_policy._docs.drop_policy]
+description = "Behavior when a bounded MPSC channel is full"
+type = "String"
+valid_range = "block | drop_oldest"
+system_impact = "'block' pauses the sender until space is available; 'drop_oldest' discards the oldest message to make room"
+
 [common.mpsc_channels.overflow_policy.metrics]
 enabled = true
 saturation_check_interval_seconds = 30
+
+[common.mpsc_channels.overflow_policy.metrics._docs.enabled]
+description = "Enable periodic channel saturation metrics collection"
+type = "bool"
+valid_range = "true/false"
+system_impact = "When true, channel fill levels are sampled and published as metrics at the configured interval"
+
+[common.mpsc_channels.overflow_policy.metrics._docs.saturation_check_interval_seconds]
+description = "Interval in seconds between channel saturation metric samples"
+type = "u32"
+valid_range = "1-3600"
+system_impact = "Lower intervals give finer-grained capacity visibility but add sampling overhead"
 
 [common.execution]
 max_concurrent_tasks = 100
@@ -431,6 +575,24 @@ description = "Number of steps to enqueue in a single batch during task initiali
 type = "u32"
 valid_range = "1-1000"
 system_impact = "Controls step enqueueing throughput; larger batches reduce round trips but increase per-batch latency"
+
+[common.execution._docs.max_discovery_attempts]
+description = "Maximum number of attempts to discover step handlers during task initialization"
+type = "u32"
+valid_range = "1-50"
+system_impact = "Controls retry behavior when step handler lookup fails; prevents infinite discovery loops"
+
+[common.execution._docs.max_workflow_steps]
+description = "Maximum number of steps allowed in a single workflow definition"
+type = "u32"
+valid_range = "1-100000"
+system_impact = "Safety limit to prevent excessively large workflows from consuming unbounded resources"
+
+[common.execution._docs.connection_timeout_seconds]
+description = "Default timeout in seconds for establishing external connections during step execution"
+type = "u32"
+valid_range = "1-300"
+system_impact = "Applies to outbound connections made by step handlers; prevents hung connections from blocking step completion"
 
 [common.execution._docs.environment]
 description = "Runtime environment identifier used for configuration context selection and logging"
@@ -490,6 +652,30 @@ type = "u32"
 valid_range = "0-300"
 system_impact = "Controls how quickly the system retries task initialization after a transient failure"
 
+[common.backoff.reenqueue_delays._docs.enqueuing_steps]
+description = "Delay in seconds before re-enqueueing a task stuck in the EnqueuingSteps state"
+type = "u32"
+valid_range = "0-300"
+system_impact = "Short delay (5s) since step enqueueing failures are usually transient"
+
+[common.backoff.reenqueue_delays._docs.steps_in_process]
+description = "Delay in seconds before re-checking a task whose steps are still being processed"
+type = "u32"
+valid_range = "0-300"
+system_impact = "Allows workers time to complete in-flight steps before the orchestrator re-evaluates the task"
+
+[common.backoff.reenqueue_delays._docs.evaluating_results]
+description = "Delay in seconds before re-evaluating a task stuck in the EvaluatingResults state"
+type = "u32"
+valid_range = "0-300"
+system_impact = "Allows the result processor time to handle pending step results before re-evaluation"
+
+[common.backoff.reenqueue_delays._docs.waiting_for_retry]
+description = "Delay in seconds before re-processing a task that is waiting for step retries"
+type = "u32"
+valid_range = "0-3600"
+system_impact = "Should be long enough for the backoff delay on the failing steps to expire before re-checking"
+
 [common.backoff.reenqueue_delays._docs.waiting_for_dependencies]
 description = "Delay in seconds before re-checking a task that is waiting for upstream step dependencies"
 type = "u32"
@@ -530,6 +716,18 @@ type = "u32"
 valid_range = "1-86400"
 system_impact = "Controls how long cached data remains valid before being re-fetched from the database"
 
+[common.cache._docs.template_ttl_seconds]
+description = "Time-to-live in seconds for cached task template definitions"
+type = "u32"
+valid_range = "1-86400"
+system_impact = "Template changes take up to this long to propagate; shorter values increase DB load, longer values improve performance"
+
+[common.cache._docs.analytics_ttl_seconds]
+description = "Time-to-live in seconds for cached analytics and metrics data"
+type = "u32"
+valid_range = "1-3600"
+system_impact = "Analytics data is write-heavy and changes frequently; short TTL (60s) keeps metrics current"
+
 [common.cache._docs.key_prefix]
 description = "Prefix applied to all cache keys to namespace entries"
 type = "String"
@@ -547,6 +745,18 @@ description = "Redis connection URL"
 type = "String"
 valid_range = "valid Redis URI"
 system_impact = "Must be reachable when cache is enabled with redis backend"
+
+[common.cache.redis._docs.max_connections]
+description = "Maximum number of connections in the Redis connection pool"
+type = "u32"
+valid_range = "1-500"
+system_impact = "Bounds concurrent Redis operations; increase for high cache throughput workloads"
+
+[common.cache.redis._docs.connection_timeout_seconds]
+description = "Maximum time to wait when establishing a new Redis connection"
+type = "u32"
+valid_range = "1-60"
+system_impact = "Connections that cannot be established within this timeout fail; cache falls back to database"
 
 [common.cache.redis._docs.database]
 description = "Redis database number (0-15)"
@@ -574,6 +784,12 @@ system_impact = "Bounds memory usage; least-recently-used entries are evicted wh
 [common.task_templates]
 search_paths = ["config/tasks/**/*.{yml,yaml}"]
 
+[common.task_templates._docs.search_paths]
+description = "Glob patterns for discovering task template YAML files"
+type = "Vec<String>"
+valid_range = "valid glob patterns"
+system_impact = "Templates matching these patterns are loaded at startup for task definition discovery"
+
 # TODO: This section is currently unused. Telemetry is configured via environment
 # variables only (TELEMETRY_ENABLED, OTEL_SERVICE_NAME, etc.) because logging must
 # be initialized before the TOML config loader runs. See tasker-shared/src/logging.rs.
@@ -582,3 +798,21 @@ search_paths = ["config/tasks/**/*.{yml,yaml}"]
 enabled = true
 service_name = "tasker-core"
 sample_rate = 0.1
+
+[common.telemetry._docs.enabled]
+description = "Enable OpenTelemetry-based telemetry collection (currently unused; see comment above)"
+type = "bool"
+valid_range = "true/false"
+system_impact = "Reserved for future TOML-driven telemetry init; currently telemetry is controlled via TELEMETRY_ENABLED env var"
+
+[common.telemetry._docs.service_name]
+description = "Service name reported in telemetry spans and metrics (currently unused; see comment above)"
+type = "String"
+valid_range = "non-empty string"
+system_impact = "Reserved for future use; currently OTEL_SERVICE_NAME env var is used instead"
+
+[common.telemetry._docs.sample_rate]
+description = "Fraction of traces to sample (currently unused; see comment above)"
+type = "f64"
+valid_range = "0.0-1.0"
+system_impact = "Reserved for future use; a value of 0.1 would sample 10% of traces"

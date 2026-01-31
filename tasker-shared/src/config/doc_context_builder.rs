@@ -236,7 +236,7 @@ impl DocContextBuilder {
     /// Load a base TOML file and extract the context sub-table.
     ///
     /// For `common.toml`, this extracts the value under the "common" key.
-    fn load_context_value(base_dir: &PathBuf, context_name: &str) -> ConfigResult<toml::Value> {
+    fn load_context_value(base_dir: &std::path::Path, context_name: &str) -> ConfigResult<toml::Value> {
         let file_path = base_dir.join(format!("{}.toml", context_name));
         if !file_path.exists() {
             debug!(

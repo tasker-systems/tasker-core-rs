@@ -2,8 +2,8 @@
 
 
 
-> 63/102 parameters documented
-> Generated: 2026-01-31T02:17:51.128440524+00:00
+> 102/102 parameters documented
+> Generated: 2026-01-31T02:40:20.802767351+00:00
 
 ---
 
@@ -78,12 +78,12 @@ Hard upper limit on any single backoff delay
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `blocked_by_failures` | `u32` | `120` | Delay in seconds before re-evaluating a task that is blocked due to step failures |
-| `enqueuing_steps` | `integer` | `5` |  |
-| `evaluating_results` | `integer` | `10` |  |
+| `enqueuing_steps` | `u32` | `5` | Delay in seconds before re-enqueueing a task stuck in the EnqueuingSteps state |
+| `evaluating_results` | `u32` | `10` | Delay in seconds before re-evaluating a task stuck in the EvaluatingResults state |
 | `initializing` | `u32` | `10` | Delay in seconds before re-enqueueing a task stuck in the Initializing state |
-| `steps_in_process` | `integer` | `15` |  |
+| `steps_in_process` | `u32` | `15` | Delay in seconds before re-checking a task whose steps are still being processed |
 | `waiting_for_dependencies` | `u32` | `60` | Delay in seconds before re-checking a task that is waiting for upstream step dependencies |
-| `waiting_for_retry` | `integer` | `30` |  |
+| `waiting_for_retry` | `u32` | `30` | Delay in seconds before re-processing a task that is waiting for step retries |
 
 
 #### `common.backoff.reenqueue_delays.blocked_by_failures`
@@ -96,6 +96,26 @@ Delay in seconds before re-evaluating a task that is blocked due to step failure
 - **System Impact:** Gives operators time to investigate before the system retries; longer values prevent retry storms
 
 
+#### `common.backoff.reenqueue_delays.enqueuing_steps`
+
+Delay in seconds before re-enqueueing a task stuck in the EnqueuingSteps state
+
+- **Type:** `u32`
+- **Default:** `5`
+- **Valid Range:** 0-300
+- **System Impact:** Short delay (5s) since step enqueueing failures are usually transient
+
+
+#### `common.backoff.reenqueue_delays.evaluating_results`
+
+Delay in seconds before re-evaluating a task stuck in the EvaluatingResults state
+
+- **Type:** `u32`
+- **Default:** `10`
+- **Valid Range:** 0-300
+- **System Impact:** Allows the result processor time to handle pending step results before re-evaluation
+
+
 #### `common.backoff.reenqueue_delays.initializing`
 
 Delay in seconds before re-enqueueing a task stuck in the Initializing state
@@ -104,6 +124,16 @@ Delay in seconds before re-enqueueing a task stuck in the Initializing state
 - **Default:** `10`
 - **Valid Range:** 0-300
 - **System Impact:** Controls how quickly the system retries task initialization after a transient failure
+
+
+#### `common.backoff.reenqueue_delays.steps_in_process`
+
+Delay in seconds before re-checking a task whose steps are still being processed
+
+- **Type:** `u32`
+- **Default:** `15`
+- **Valid Range:** 0-300
+- **System Impact:** Allows workers time to complete in-flight steps before the orchestrator re-evaluates the task
 
 
 #### `common.backoff.reenqueue_delays.waiting_for_dependencies`
@@ -116,18 +146,38 @@ Delay in seconds before re-checking a task that is waiting for upstream step dep
 - **System Impact:** Longer delays reduce polling overhead for tasks with slow dependencies; shorter delays improve responsiveness
 
 
+#### `common.backoff.reenqueue_delays.waiting_for_retry`
+
+Delay in seconds before re-processing a task that is waiting for step retries
+
+- **Type:** `u32`
+- **Default:** `30`
+- **Valid Range:** 0-3600
+- **System Impact:** Should be long enough for the backoff delay on the failing steps to expire before re-checking
+
+
 ## cache
 
 **Path:** `common.cache`
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `analytics_ttl_seconds` | `integer` | `60` |  |
+| `analytics_ttl_seconds` | `u32` | `60` | Time-to-live in seconds for cached analytics and metrics data |
 | `backend` | `String` | `"redis"` | Cache backend implementation: 'redis' (distributed) or 'moka' (in-process) |
 | `default_ttl_seconds` | `u32` | `3600` | Default time-to-live in seconds for cached entries |
 | `enabled` | `bool` | `false` | Enable the distributed cache layer for template and analytics data |
 | `key_prefix` | `String` | `"tasker"` | Prefix applied to all cache keys to namespace entries |
-| `template_ttl_seconds` | `integer` | `3600` |  |
+| `template_ttl_seconds` | `u32` | `3600` | Time-to-live in seconds for cached task template definitions |
+
+
+#### `common.cache.analytics_ttl_seconds`
+
+Time-to-live in seconds for cached analytics and metrics data
+
+- **Type:** `u32`
+- **Default:** `60`
+- **Valid Range:** 1-3600
+- **System Impact:** Analytics data is write-heavy and changes frequently; short TTL (60s) keeps metrics current
 
 
 #### `common.cache.backend`
@@ -170,6 +220,16 @@ Prefix applied to all cache keys to namespace entries
 - **System Impact:** Prevents key collisions when multiple Tasker instances or other applications share the same cache backend
 
 
+#### `common.cache.template_ttl_seconds`
+
+Time-to-live in seconds for cached task template definitions
+
+- **Type:** `u32`
+- **Default:** `3600`
+- **Valid Range:** 1-86400
+- **System Impact:** Template changes take up to this long to propagate; shorter values increase DB load, longer values improve performance
+
+
 ### moka
 
 **Path:** `common.cache.moka`
@@ -195,10 +255,20 @@ Maximum number of entries the in-process Moka cache can hold
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `connection_timeout_seconds` | `integer` | `5` |  |
+| `connection_timeout_seconds` | `u32` | `5` | Maximum time to wait when establishing a new Redis connection |
 | `database` | `u32` | `0` | Redis database number (0-15) |
-| `max_connections` | `integer` | `10` |  |
+| `max_connections` | `u32` | `10` | Maximum number of connections in the Redis connection pool |
 | `url` | `String` | `"${REDIS_URL:-redis://localhost:6379}"` | Redis connection URL |
+
+
+#### `common.cache.redis.connection_timeout_seconds`
+
+Maximum time to wait when establishing a new Redis connection
+
+- **Type:** `u32`
+- **Default:** `5`
+- **Valid Range:** 1-60
+- **System Impact:** Connections that cannot be established within this timeout fail; cache falls back to database
 
 
 #### `common.cache.redis.database`
@@ -209,6 +279,16 @@ Redis database number (0-15)
 - **Default:** `0`
 - **Valid Range:** 0-15
 - **System Impact:** Isolates Tasker cache keys from other applications sharing the same Redis instance
+
+
+#### `common.cache.redis.max_connections`
+
+Maximum number of connections in the Redis connection pool
+
+- **Type:** `u32`
+- **Default:** `10`
+- **Valid Range:** 1-500
+- **System Impact:** Bounds concurrent Redis operations; increase for high cache throughput workloads
 
 
 #### `common.cache.redis.url`
@@ -250,9 +330,39 @@ Master switch for the circuit breaker subsystem
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `failure_threshold` | `integer` | `5` |  |
-| `success_threshold` | `integer` | `2` |  |
-| `timeout_seconds` | `integer` | `15` |  |
+| `failure_threshold` | `u32` | `5` | Failures before the cache circuit breaker trips to Open |
+| `success_threshold` | `u32` | `2` | Successes in Half-Open required to close the cache breaker |
+| `timeout_seconds` | `u32` | `15` | Time the cache breaker stays Open before probing |
+
+
+#### `common.circuit_breakers.component_configs.cache.failure_threshold`
+
+Failures before the cache circuit breaker trips to Open
+
+- **Type:** `u32`
+- **Default:** `5`
+- **Valid Range:** 1-100
+- **System Impact:** Protects Redis/Dragonfly operations; when tripped, cache reads fall through to database
+
+
+#### `common.circuit_breakers.component_configs.cache.success_threshold`
+
+Successes in Half-Open required to close the cache breaker
+
+- **Type:** `u32`
+- **Default:** `2`
+- **Valid Range:** 1-100
+- **System Impact:** Low threshold (2) for fast recovery since cache failures gracefully degrade to database
+
+
+#### `common.circuit_breakers.component_configs.cache.timeout_seconds`
+
+Time the cache breaker stays Open before probing
+
+- **Type:** `u32`
+- **Default:** `15`
+- **Valid Range:** 1-300
+- **System Impact:** Shorter than default (15s) because cache is non-critical and can recover quickly
 
 
 #### pgmq
@@ -261,9 +371,39 @@ Master switch for the circuit breaker subsystem
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `failure_threshold` | `integer` | `5` |  |
-| `success_threshold` | `integer` | `2` |  |
-| `timeout_seconds` | `integer` | `30` |  |
+| `failure_threshold` | `u32` | `5` | Failures before the PGMQ circuit breaker trips to Open |
+| `success_threshold` | `u32` | `2` | Successes in Half-Open required to close the PGMQ breaker |
+| `timeout_seconds` | `u32` | `30` | Time the PGMQ breaker stays Open before probing |
+
+
+#### `common.circuit_breakers.component_configs.pgmq.failure_threshold`
+
+Failures before the PGMQ circuit breaker trips to Open
+
+- **Type:** `u32`
+- **Default:** `5`
+- **Valid Range:** 1-100
+- **System Impact:** Protects the messaging layer; when tripped, queue operations are short-circuited
+
+
+#### `common.circuit_breakers.component_configs.pgmq.success_threshold`
+
+Successes in Half-Open required to close the PGMQ breaker
+
+- **Type:** `u32`
+- **Default:** `2`
+- **Valid Range:** 1-100
+- **System Impact:** Lower threshold (2) allows faster recovery since PGMQ failures are typically transient
+
+
+#### `common.circuit_breakers.component_configs.pgmq.timeout_seconds`
+
+Time the PGMQ breaker stays Open before probing
+
+- **Type:** `u32`
+- **Default:** `30`
+- **Valid Range:** 1-300
+- **System Impact:** Controls recovery time after PGMQ failures; matches the default config
 
 
 #### task_readiness
@@ -272,9 +412,39 @@ Master switch for the circuit breaker subsystem
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `failure_threshold` | `integer` | `10` |  |
-| `success_threshold` | `integer` | `3` |  |
-| `timeout_seconds` | `integer` | `60` |  |
+| `failure_threshold` | `u32` | `10` | Failures before the task readiness circuit breaker trips to Open |
+| `success_threshold` | `u32` | `3` | Successes in Half-Open required to close the task readiness breaker |
+| `timeout_seconds` | `u32` | `60` | Time the task readiness breaker stays Open before probing |
+
+
+#### `common.circuit_breakers.component_configs.task_readiness.failure_threshold`
+
+Failures before the task readiness circuit breaker trips to Open
+
+- **Type:** `u32`
+- **Default:** `10`
+- **Valid Range:** 1-100
+- **System Impact:** Higher than default (10 vs 5) because task readiness queries are frequent and transient failures are expected
+
+
+#### `common.circuit_breakers.component_configs.task_readiness.success_threshold`
+
+Successes in Half-Open required to close the task readiness breaker
+
+- **Type:** `u32`
+- **Default:** `3`
+- **Valid Range:** 1-100
+- **System Impact:** Slightly higher than default (3) for extra confidence before resuming readiness queries
+
+
+#### `common.circuit_breakers.component_configs.task_readiness.timeout_seconds`
+
+Time the task readiness breaker stays Open before probing
+
+- **Type:** `u32`
+- **Default:** `60`
+- **Valid Range:** 1-300
+- **System Impact:** Longer than default (60s) to give the database time to recover from readiness query pressure
 
 
 ### default_config
@@ -325,8 +495,8 @@ Time the circuit breaker remains in Open state before transitioning to Half-Open
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `max_circuit_breakers` | `u32` | `50` | Maximum number of circuit breaker instances that can be registered |
-| `metrics_collection_interval_seconds` | `integer` | `30` |  |
-| `min_state_transition_interval_seconds` | `float` | `5.0` |  |
+| `metrics_collection_interval_seconds` | `u32` | `30` | Interval in seconds between circuit breaker metrics collection sweeps |
+| `min_state_transition_interval_seconds` | `f64` | `5.0` | Minimum time in seconds between circuit breaker state transitions |
 
 
 #### `common.circuit_breakers.global_settings.max_circuit_breakers`
@@ -337,6 +507,26 @@ Maximum number of circuit breaker instances that can be registered
 - **Default:** `50`
 - **Valid Range:** 1-1000
 - **System Impact:** Safety limit to prevent unbounded circuit breaker allocation; increase only if adding many component-specific breakers
+
+
+#### `common.circuit_breakers.global_settings.metrics_collection_interval_seconds`
+
+Interval in seconds between circuit breaker metrics collection sweeps
+
+- **Type:** `u32`
+- **Default:** `30`
+- **Valid Range:** 1-3600
+- **System Impact:** Controls how frequently circuit breaker state, failure counts, and transition counts are collected for observability
+
+
+#### `common.circuit_breakers.global_settings.min_state_transition_interval_seconds`
+
+Minimum time in seconds between circuit breaker state transitions
+
+- **Type:** `f64`
+- **Default:** `5.0`
+- **Valid Range:** 0.0-60.0
+- **System Impact:** Prevents rapid oscillation between Open and Closed states during intermittent failures
 
 
 ## database
@@ -384,8 +574,8 @@ PostgreSQL connection URL for the primary database
 | Environment | Value | Rationale |
 |-------------|-------|-----------|
 | development | postgresql://localhost/tasker | Local default, no auth |
-| production | ${DATABASE_URL} | Always use env var injection for secrets rotation |
 | test | postgresql://tasker:tasker@localhost:5432/tasker_rust_test | Isolated test database with known credentials |
+| production | ${DATABASE_URL} | Always use env var injection for secrets rotation |
 
 **Related:** `common.database.pool.max_connections`, `common.pgmq_database.url`
 
@@ -437,9 +627,9 @@ Maximum number of concurrent database connections in the pool
 
 | Environment | Value | Rationale |
 |-------------|-------|-----------|
-| development | 10-25 | Small pool for local development |
-| test | 10-30 | Moderate pool; cluster tests may run 10 services sharing the same DB |
 | production | 30-50 | Scale based on worker count and concurrent task volume |
+| test | 10-30 | Moderate pool; cluster tests may run 10 services sharing the same DB |
+| development | 10-25 | Small pool for local development |
 
 **Related:** `common.database.pool.min_connections`, `common.database.pool.acquire_timeout_seconds`
 
@@ -499,16 +689,26 @@ PostgreSQL statement_timeout in milliseconds, set per-connection via SET stateme
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `connection_timeout_seconds` | `integer` | `30` |  |
+| `connection_timeout_seconds` | `u32` | `30` | Default timeout in seconds for establishing external connections during step execution |
 | `default_timeout_seconds` | `u32` | `3600` | Default maximum wall-clock time for an entire task to complete |
 | `environment` | `String` | `"development"` | Runtime environment identifier used for configuration context selection and logging |
 | `max_concurrent_steps` | `u32` | `1000` | Maximum number of steps that can be executing simultaneously across all tasks |
 | `max_concurrent_tasks` | `u32` | `100` | Maximum number of tasks that can be actively processed simultaneously |
-| `max_discovery_attempts` | `integer` | `5` |  |
+| `max_discovery_attempts` | `u32` | `5` | Maximum number of attempts to discover step handlers during task initialization |
 | `max_retries` | `u32` | `3` | Default maximum number of retry attempts for a failed step |
-| `max_workflow_steps` | `integer` | `10000` |  |
+| `max_workflow_steps` | `u32` | `10000` | Maximum number of steps allowed in a single workflow definition |
 | `step_batch_size` | `u32` | `50` | Number of steps to enqueue in a single batch during task initialization |
 | `step_execution_timeout_seconds` | `u32` | `600` | Default maximum time for a single step execution before it is considered timed out |
+
+
+#### `common.execution.connection_timeout_seconds`
+
+Default timeout in seconds for establishing external connections during step execution
+
+- **Type:** `u32`
+- **Default:** `30`
+- **Valid Range:** 1-300
+- **System Impact:** Applies to outbound connections made by step handlers; prevents hung connections from blocking step completion
 
 
 #### `common.execution.default_timeout_seconds`
@@ -551,6 +751,16 @@ Maximum number of tasks that can be actively processed simultaneously
 - **System Impact:** Primary concurrency control; limits how many task state machines are active at once
 
 
+#### `common.execution.max_discovery_attempts`
+
+Maximum number of attempts to discover step handlers during task initialization
+
+- **Type:** `u32`
+- **Default:** `5`
+- **Valid Range:** 1-50
+- **System Impact:** Controls retry behavior when step handler lookup fails; prevents infinite discovery loops
+
+
 #### `common.execution.max_retries`
 
 Default maximum number of retry attempts for a failed step
@@ -559,6 +769,16 @@ Default maximum number of retry attempts for a failed step
 - **Default:** `3`
 - **Valid Range:** 0-100
 - **System Impact:** Applies when step definitions do not specify their own retry count; 0 means no retries
+
+
+#### `common.execution.max_workflow_steps`
+
+Maximum number of steps allowed in a single workflow definition
+
+- **Type:** `u32`
+- **Default:** `10000`
+- **Valid Range:** 1-100000
+- **System Impact:** Safety limit to prevent excessively large workflows from consuming unbounded resources
 
 
 #### `common.execution.step_batch_size`
@@ -591,7 +811,17 @@ Default maximum time for a single step execution before it is considered timed o
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `event_queue_buffer_size` | `integer` | `5000` |  |
+| `event_queue_buffer_size` | `usize` | `5000` | Bounded channel capacity for the event publisher MPSC channel |
+
+
+#### `common.mpsc_channels.event_publisher.event_queue_buffer_size`
+
+Bounded channel capacity for the event publisher MPSC channel
+
+- **Type:** `usize`
+- **Default:** `5000`
+- **Valid Range:** 100-100000
+- **System Impact:** Controls backpressure for domain event publishing; smaller buffers apply backpressure sooner
 
 
 ### ffi
@@ -600,7 +830,17 @@ Default maximum time for a single step execution before it is considered timed o
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `ruby_event_buffer_size` | `integer` | `1000` |  |
+| `ruby_event_buffer_size` | `usize` | `1000` | Bounded channel capacity for Ruby FFI event delivery |
+
+
+#### `common.mpsc_channels.ffi.ruby_event_buffer_size`
+
+Bounded channel capacity for Ruby FFI event delivery
+
+- **Type:** `usize`
+- **Default:** `1000`
+- **Valid Range:** 100-50000
+- **System Impact:** Buffers events between the Rust runtime and Ruby FFI layer; overflow triggers backpressure on the dispatch side
 
 
 ### overflow_policy
@@ -609,8 +849,28 @@ Default maximum time for a single step execution before it is considered timed o
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `drop_policy` | `String` | `"block"` |  |
-| `log_warning_threshold` | `float` | `0.8` |  |
+| `drop_policy` | `String` | `"block"` | Behavior when a bounded MPSC channel is full |
+| `log_warning_threshold` | `f64` | `0.8` | Channel saturation fraction at which warning logs are emitted |
+
+
+#### `common.mpsc_channels.overflow_policy.drop_policy`
+
+Behavior when a bounded MPSC channel is full
+
+- **Type:** `String`
+- **Default:** `"block"`
+- **Valid Range:** block | drop_oldest
+- **System Impact:** 'block' pauses the sender until space is available; 'drop_oldest' discards the oldest message to make room
+
+
+#### `common.mpsc_channels.overflow_policy.log_warning_threshold`
+
+Channel saturation fraction at which warning logs are emitted
+
+- **Type:** `f64`
+- **Default:** `0.8`
+- **Valid Range:** 0.0-1.0
+- **System Impact:** A value of 0.8 means warnings fire when any channel reaches 80% capacity
 
 
 #### metrics
@@ -619,8 +879,28 @@ Default maximum time for a single step execution before it is considered timed o
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `enabled` | `bool` | `true` |  |
-| `saturation_check_interval_seconds` | `integer` | `30` |  |
+| `enabled` | `bool` | `true` | Enable periodic channel saturation metrics collection |
+| `saturation_check_interval_seconds` | `u32` | `30` | Interval in seconds between channel saturation metric samples |
+
+
+#### `common.mpsc_channels.overflow_policy.metrics.enabled`
+
+Enable periodic channel saturation metrics collection
+
+- **Type:** `bool`
+- **Default:** `true`
+- **Valid Range:** true/false
+- **System Impact:** When true, channel fill levels are sampled and published as metrics at the configured interval
+
+
+#### `common.mpsc_channels.overflow_policy.metrics.saturation_check_interval_seconds`
+
+Interval in seconds between channel saturation metric samples
+
+- **Type:** `u32`
+- **Default:** `30`
+- **Valid Range:** 1-3600
+- **System Impact:** Lower intervals give finer-grained capacity visibility but add sampling overhead
 
 
 ## pgmq_database
@@ -630,7 +910,7 @@ Default maximum time for a single step execution before it is considered timed o
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `enabled` | `bool` | `true` | Enable PGMQ messaging subsystem |
-| `skip_migration_check` | `bool` | `false` |  |
+| `skip_migration_check` | `bool` | `false` | Skip PGMQ database migration version check at startup |
 | `url` | `String` | `"${PGMQ_DATABASE_URL:-}"` | PostgreSQL connection URL for a dedicated PGMQ database; when empty, PGMQ shares the primary database |
 
 
@@ -642,6 +922,16 @@ Enable PGMQ messaging subsystem
 - **Default:** `true`
 - **Valid Range:** true/false
 - **System Impact:** When false, PGMQ queue operations are disabled; only useful if using RabbitMQ as the sole messaging backend
+
+
+#### `common.pgmq_database.skip_migration_check`
+
+Skip PGMQ database migration version check at startup
+
+- **Type:** `bool`
+- **Default:** `false`
+- **Valid Range:** true/false
+- **System Impact:** When true, PGMQ migration verification is skipped; use only for testing or externally managed migrations
 
 
 #### `common.pgmq_database.url`
@@ -662,12 +952,72 @@ PostgreSQL connection URL for a dedicated PGMQ database; when empty, PGMQ shares
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `acquire_timeout_seconds` | `integer` | `5` |  |
-| `idle_timeout_seconds` | `integer` | `300` |  |
-| `max_connections` | `integer` | `15` |  |
-| `max_lifetime_seconds` | `integer` | `1800` |  |
-| `min_connections` | `integer` | `3` |  |
-| `slow_acquire_threshold_ms` | `integer` | `100` |  |
+| `acquire_timeout_seconds` | `u32` | `5` | Maximum time to wait when acquiring a connection from the PGMQ pool |
+| `idle_timeout_seconds` | `u32` | `300` | Time before an idle PGMQ connection is closed and removed from the pool |
+| `max_connections` | `u32` | `15` | Maximum number of concurrent connections in the PGMQ database pool |
+| `max_lifetime_seconds` | `u32` | `1800` | Maximum total lifetime of a PGMQ database connection before replacement |
+| `min_connections` | `u32` | `3` | Minimum idle connections maintained in the PGMQ database pool |
+| `slow_acquire_threshold_ms` | `u32` | `100` | Threshold in milliseconds above which PGMQ pool acquisition is logged as slow |
+
+
+#### `common.pgmq_database.pool.acquire_timeout_seconds`
+
+Maximum time to wait when acquiring a connection from the PGMQ pool
+
+- **Type:** `u32`
+- **Default:** `5`
+- **Valid Range:** 1-300
+- **System Impact:** Queue operations fail with timeout if no PGMQ connection is available within this window
+
+
+#### `common.pgmq_database.pool.idle_timeout_seconds`
+
+Time before an idle PGMQ connection is closed and removed from the pool
+
+- **Type:** `u32`
+- **Default:** `300`
+- **Valid Range:** 1-3600
+- **System Impact:** Controls how quickly the PGMQ pool shrinks after messaging load drops
+
+
+#### `common.pgmq_database.pool.max_connections`
+
+Maximum number of concurrent connections in the PGMQ database pool
+
+- **Type:** `u32`
+- **Default:** `15`
+- **Valid Range:** 1-500
+- **System Impact:** Separate from the main database pool; size according to messaging throughput requirements
+
+
+#### `common.pgmq_database.pool.max_lifetime_seconds`
+
+Maximum total lifetime of a PGMQ database connection before replacement
+
+- **Type:** `u32`
+- **Default:** `1800`
+- **Valid Range:** 60-86400
+- **System Impact:** Prevents connection drift in long-running PGMQ connections
+
+
+#### `common.pgmq_database.pool.min_connections`
+
+Minimum idle connections maintained in the PGMQ database pool
+
+- **Type:** `u32`
+- **Default:** `3`
+- **Valid Range:** 0-100
+- **System Impact:** Keeps PGMQ connections warm to avoid cold-start latency on queue operations
+
+
+#### `common.pgmq_database.pool.slow_acquire_threshold_ms`
+
+Threshold in milliseconds above which PGMQ pool acquisition is logged as slow
+
+- **Type:** `u32`
+- **Default:** `100`
+- **Valid Range:** 10-60000
+- **System Impact:** Observability: slow PGMQ acquire warnings indicate messaging pool pressure
 
 
 ## queues
@@ -699,8 +1049,8 @@ Messaging backend: 'pgmq' (PostgreSQL-based, LISTEN/NOTIFY) or 'rabbitmq' (AMQP 
 
 | Environment | Value | Rationale |
 |-------------|-------|-----------|
-| production | pgmq or rabbitmq | pgmq for simplicity, rabbitmq for high-throughput push semantics |
 | test | pgmq | Single-dependency setup, simpler CI |
+| production | pgmq or rabbitmq | pgmq for simplicity, rabbitmq for high-throughput push semantics |
 
 **Related:** `common.queues.pgmq`, `common.queues.rabbitmq`
 
@@ -997,7 +1347,17 @@ Tasker configuration schema version
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `search_paths` | `array` | `["config/tasks/**/*.{yml,yaml}"]` |  |
+| `search_paths` | `Vec<String>` | `["config/tasks/**/*.{yml,yaml}"]` | Glob patterns for discovering task template YAML files |
+
+
+#### `common.task_templates.search_paths`
+
+Glob patterns for discovering task template YAML files
+
+- **Type:** `Vec<String>`
+- **Default:** `["config/tasks/**/*.{yml,yaml}"]`
+- **Valid Range:** valid glob patterns
+- **System Impact:** Templates matching these patterns are loaded at startup for task definition discovery
 
 
 ## telemetry
@@ -1006,9 +1366,39 @@ Tasker configuration schema version
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `enabled` | `bool` | `true` |  |
-| `sample_rate` | `float` | `0.1` |  |
-| `service_name` | `String` | `"tasker-core"` |  |
+| `enabled` | `bool` | `true` | Enable OpenTelemetry-based telemetry collection (currently unused; see comment above) |
+| `sample_rate` | `f64` | `0.1` | Fraction of traces to sample (currently unused; see comment above) |
+| `service_name` | `String` | `"tasker-core"` | Service name reported in telemetry spans and metrics (currently unused; see comment above) |
+
+
+#### `common.telemetry.enabled`
+
+Enable OpenTelemetry-based telemetry collection (currently unused; see comment above)
+
+- **Type:** `bool`
+- **Default:** `true`
+- **Valid Range:** true/false
+- **System Impact:** Reserved for future TOML-driven telemetry init; currently telemetry is controlled via TELEMETRY_ENABLED env var
+
+
+#### `common.telemetry.sample_rate`
+
+Fraction of traces to sample (currently unused; see comment above)
+
+- **Type:** `f64`
+- **Default:** `0.1`
+- **Valid Range:** 0.0-1.0
+- **System Impact:** Reserved for future use; a value of 0.1 would sample 10% of traces
+
+
+#### `common.telemetry.service_name`
+
+Service name reported in telemetry spans and metrics (currently unused; see comment above)
+
+- **Type:** `String`
+- **Default:** `"tasker-core"`
+- **Valid Range:** non-empty string
+- **System Impact:** Reserved for future use; currently OTEL_SERVICE_NAME env var is used instead
 
 
 
